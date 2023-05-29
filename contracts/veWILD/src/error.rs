@@ -4,4 +4,9 @@ use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum ContractError {
+    #[error("{0}")]
+    Std(#[from] StdError),
+    #[error("VeToken: accrue first")]
+    AccrueFirst {},
+
 }

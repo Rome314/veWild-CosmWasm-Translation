@@ -1,0 +1,11 @@
+/Users/rome/RustProjects/veWild-CosmWasm-Translation/veWILD/target/debug/deps/cosmwasm_schema-1fbf59130648ab76.rmeta: /Users/rome/.cargo/registry/src/github.com-1ecc6299db9ec823/cosmwasm-schema-1.2.5/src/lib.rs /Users/rome/.cargo/registry/src/github.com-1ecc6299db9ec823/cosmwasm-schema-1.2.5/src/casing.rs /Users/rome/.cargo/registry/src/github.com-1ecc6299db9ec823/cosmwasm-schema-1.2.5/src/export.rs /Users/rome/.cargo/registry/src/github.com-1ecc6299db9ec823/cosmwasm-schema-1.2.5/src/idl.rs /Users/rome/.cargo/registry/src/github.com-1ecc6299db9ec823/cosmwasm-schema-1.2.5/src/query_response.rs /Users/rome/.cargo/registry/src/github.com-1ecc6299db9ec823/cosmwasm-schema-1.2.5/src/remove.rs /Users/rome/.cargo/registry/src/github.com-1ecc6299db9ec823/cosmwasm-schema-1.2.5/src/schema_for.rs
+
+/Users/rome/RustProjects/veWild-CosmWasm-Translation/veWILD/target/debug/deps/cosmwasm_schema-1fbf59130648ab76.d: /Users/rome/.cargo/registry/src/github.com-1ecc6299db9ec823/cosmwasm-schema-1.2.5/src/lib.rs /Users/rome/.cargo/registry/src/github.com-1ecc6299db9ec823/cosmwasm-schema-1.2.5/src/casing.rs /Users/rome/.cargo/registry/src/github.com-1ecc6299db9ec823/cosmwasm-schema-1.2.5/src/export.rs /Users/rome/.cargo/registry/src/github.com-1ecc6299db9ec823/cosmwasm-schema-1.2.5/src/idl.rs /Users/rome/.cargo/registry/src/github.com-1ecc6299db9ec823/cosmwasm-schema-1.2.5/src/query_response.rs /Users/rome/.cargo/registry/src/github.com-1ecc6299db9ec823/cosmwasm-schema-1.2.5/src/remove.rs /Users/rome/.cargo/registry/src/github.com-1ecc6299db9ec823/cosmwasm-schema-1.2.5/src/schema_for.rs
+
+/Users/rome/.cargo/registry/src/github.com-1ecc6299db9ec823/cosmwasm-schema-1.2.5/src/lib.rs:
+/Users/rome/.cargo/registry/src/github.com-1ecc6299db9ec823/cosmwasm-schema-1.2.5/src/casing.rs:
+/Users/rome/.cargo/registry/src/github.com-1ecc6299db9ec823/cosmwasm-schema-1.2.5/src/export.rs:
+/Users/rome/.cargo/registry/src/github.com-1ecc6299db9ec823/cosmwasm-schema-1.2.5/src/idl.rs:
+/Users/rome/.cargo/registry/src/github.com-1ecc6299db9ec823/cosmwasm-schema-1.2.5/src/query_response.rs:
+/Users/rome/.cargo/registry/src/github.com-1ecc6299db9ec823/cosmwasm-schema-1.2.5/src/remove.rs:
+/Users/rome/.cargo/registry/src/github.com-1ecc6299db9ec823/cosmwasm-schema-1.2.5/src/schema_for.rs:

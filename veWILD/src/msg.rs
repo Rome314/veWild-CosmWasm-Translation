@@ -1,34 +1,18 @@
+use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::Addr;
-use cosmwasm_schema::{cw_serde,QueryResponses};
 
 #[cw_serde]
 pub struct InstantiateMsg {
-    pub admins: Vec<String>,
-    pub donation_denom: String,
+    pub locked_token: Addr,
+    pub distribution_period: u64,
 }
 
 #[cw_serde]
-pub enum ExecuteMsg {
-    AddMembers { admins: Vec<String> },
-    Leave {},
-    Donate {},
-}
+pub enum ExecuteMsg {}
 
 #[cw_serde]
-pub struct GreetResp {
-    pub message: String,
-}
-
-#[cw_serde]
-pub struct AdminListResp {
-    pub admins: Vec<Addr>,
-}
+pub struct GreetResp {}
 
 #[cw_serde]
 #[derive(QueryResponses)]
-pub enum QueryMsg {
-    #[returns(GreetResp)]
-    Greet {},
-    #[returns(AdminListResp)]
-    AdminList {},
-}
+pub enum QueryMsg {}

@@ -1,11 +1,11 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{Addr, Uint128};
+use cosmwasm_std::{Addr, Uint128, Uint64};
 use cw20::Denom;
 use cw_storage_plus::{Item, Map};
 
-pub const SECONDS_PER_DAY: u64 = 24 * 60 * 60;
-pub const MIN_LOCK_PERIOD: u64 = 1460 * SECONDS_PER_DAY;
-pub const WITHDRAW_DELAY: u64 = 1 * SECONDS_PER_DAY;
+pub const SECONDS_PER_DAY: Uint64 = 24 * 60 * 60;
+pub const MIN_LOCK_PERIOD: Uint64 = 1460 * SECONDS_PER_DAY;
+pub const WITHDRAW_DELAY: Uint64 = 1 * SECONDS_PER_DAY;
 
 pub const TOKEN_NAME: String = String::from("veWILD");
 pub const TOKEN_SYMBOL: String = String::from("veWILD");
@@ -19,19 +19,18 @@ pub const USER_STATE: Map<&Addr, UserState> = Map::new("user_state");
 pub struct TokenState {
     pub total_supply: Uint128,
     pub total_locked: Uint128,
-    pub distribution_period: u64,
+    pub distribution_period: Uint64,
 
     // utility values
-    pub locked_token: Addr,     // address of the token contract
-    pub last_accrue_block: u64, //TODO: Check type
-    pub last_income_block: u64, //TODO: Check type
+    pub locked_token: Addr,        // address of the token contract
+    pub last_accrue_block: Uint64, //TODO: Check type
+    pub last_income_block: Uint64, //TODO: Check type
     pub reward_per_token: Uint128,
     pub reward_rate_stored: Uint128, //TODO: make private
 }
 
 impl TokenState {
-
-    pub fn pending_reward_per_token(&self, block_height: u64) -> Uint128 {
+    pub fn pending_reward_per_token(&self, block_height: Uint64) -> Uint128 {
         if self.total_supply.is_zero() {
             return Uint128::zero();
         }

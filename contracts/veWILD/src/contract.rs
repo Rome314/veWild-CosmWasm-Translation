@@ -1,7 +1,9 @@
 use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
 use crate::state::*;
-use cosmwasm_std::{entry_point, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult};
+use cosmwasm_std::{
+    entry_point, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, Uint64,
+};
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -9,8 +11,26 @@ pub fn instantiate(
     env: Env,
     info: MessageInfo,
     msg: InstantiateMsg,
-) -> StdResult<Response> {
-    Ok(Response::default())
+) -> Result<Response, ContractError> {
+    use utils::setDistributionPeriod;
+    // TODO: check for double initialization (?)
+    let mut token_state: TokenState = TokenState::default();
+    let user_state: UserState = UserState::default();
+
+    token_state.locked_token = msg.locked_token;
+    token_state.last_accrue_block = Uint64::from(env.block.height);
+
+    TOKEN_STATE.save(deps.storage, &token_state)?;
+    USER_STATE.save(deps.storage, &user_state)?;
+
+    let events = setDistributionPeriod(deps, env, msg.distribution_period)?;
+
+    //TODO: set/manage owner (?)
+    //TODO: emit ownership transfer event (?)
+
+    let resp = Response::new().add_events(events);
+
+    Ok(resp)
 }
 
 //  Internal functions
@@ -18,7 +38,7 @@ pub fn instantiate(
 mod utils {
     use std::ops::Mul;
 
-    use cosmwasm_std::{Uint128, Uint64, Event};
+    use cosmwasm_std::{Event, Uint128, Uint64};
 
     use super::*;
 
@@ -26,7 +46,7 @@ mod utils {
         deps: DepsMut,
         env: Env,
         blocks: Uint64,
-    ) -> Result<Event[], ContractError> {
+    ) -> Result<[Event], ContractError> {
         if blocks.is_zero() {
             return Result::Err(ContractError::ZeroDistributionPeriod {});
         }
@@ -41,9 +61,8 @@ mod utils {
         )?;
 
         // TODO: check for better way to emit events
-        let events = [
-            Event::new("new_distribution_period").add_attribute("value", blocks.to_string()),
-        ];
+        let events =
+            [Event::new("new_distribution_period").add_attribute("value", blocks.to_string())];
 
         Ok(events)
     }

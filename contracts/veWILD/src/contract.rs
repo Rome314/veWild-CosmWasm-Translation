@@ -18,9 +18,35 @@ pub fn instantiate(
 mod utils {
     use std::ops::Mul;
 
-    use cosmwasm_std::{StdError, Uint128, Uint64};
+    use cosmwasm_std::{Uint128, Uint64, Event};
 
     use super::*;
+
+    pub fn setDistributionPeriod(
+        deps: DepsMut,
+        env: Env,
+        blocks: Uint64,
+    ) -> Result<Event[], ContractError> {
+        if blocks.is_zero() {
+            return Result::Err(ContractError::ZeroDistributionPeriod {});
+        }
+        accrue(deps, env);
+        updateRewardRate(
+            deps,
+            env,
+            UpdateRewardRateInput {
+                add_amount: Uint128::zero(),
+                new_distribution_period: blocks,
+            },
+        )?;
+
+        // TODO: check for better way to emit events
+        let events = [
+            Event::new("new_distribution_period").add_attribute("value", blocks.to_string()),
+        ];
+
+        Ok(events)
+    }
 
     pub struct UpdateRewardRateInput {
         add_amount: Uint128,

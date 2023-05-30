@@ -58,3 +58,15 @@ pub struct UserState {
     pub reward_snapshot: u64, //TODO: check type
     pub withdraw_at: u64,     //TODO: check type
 }
+
+impl UserState {
+    pub fn pending_reward(
+        self,
+        current_reward_per_token: Uint128,
+        pending_reward_rate: Uint128,
+    ) -> Uint128 {
+        let pending_reward_per_token = current_reward_per_token + pending_reward_rate;
+        let reward_per_token_delta = pending_reward_per_token - self.reward_snapshot;
+        return reward_per_token_delta * self.balance; //Decimals?
+    }
+}

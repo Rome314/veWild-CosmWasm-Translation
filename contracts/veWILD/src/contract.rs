@@ -42,6 +42,34 @@ mod utils {
 
     use super::*;
 
+    pub fn claim(deps: DepsMut, env: Env, msg: MessageInfo) -> Result<[Event], ContractError> {
+        accrue(deps, env);
+
+        let token_state = TOKEN_STATE.load(&deps.storage)?;
+        let user_state = USER_STATE.load(&deps.storage, &msg.sender)?;
+
+        let current_block = Uint64::from(env.block.height);
+        let pending_reward = user_state.pending_reward(
+            token_state.reward_per_token,
+            token_state.pending_reward_per_token(current_block),
+        );
+
+        // TODO:implement
+        /*         if !pending_reward.is_zero(){
+                   IERC20(lockedToken).transfer(msg.sender, pendingReward);
+               }
+        */
+        user_state.reward_snapshot = token_state.reward_per_token;
+        // TODO:finish
+        
+
+        let events = [Event::new("claim")];
+
+        Ok(events)
+    }
+
+    
+
     pub fn setDistributionPeriod(
         deps: DepsMut,
         env: Env,

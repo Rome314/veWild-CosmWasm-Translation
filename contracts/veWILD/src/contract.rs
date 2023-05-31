@@ -38,11 +38,11 @@ pub fn instantiate(
 mod utils {
     use std::ops::Mul;
 
-    use cosmwasm_std::{Addr, Event, Uint128, Uint64};
+    use cosmwasm_std::{to_binary, Addr, BankMsg, CosmosMsg, Event, Uint128, Uint64, WasmMsg};
 
     use super::*;
 
-    pub fn claim(deps: DepsMut, env: Env, msg: MessageInfo) -> Result<[Event], ContractError> {
+    pub fn claim(deps: DepsMut, env: Env, msg: MessageInfo) -> Result<Response, ContractError> {
         accrue(deps, env);
 
         let token_state = TOKEN_STATE.load(&deps.storage)?;
@@ -54,16 +54,28 @@ mod utils {
             token_state.pending_reward_per_token(current_block),
         );
 
-        // TODO:implement
-        /*         if !pending_reward.is_zero(){
-                   IERC20(lockedToken).transfer(msg.sender, pendingReward);
-               }
-        */
+        let mut messages: Vec<CosmosMsg>;
+        if !pending_reward.is_zero() {
+            let token_transfer_msg = ExecuteMsg::Transfer {
+                recipient: msg.sender.clone().into_string(),
+                pending_reward,
+            };
+            messages.append(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: token_state.locked_token.clone().into_string(),
+                msg: to_binary(&token_transfer_msg)?,
+                funds: vec![],
+            }))
+        }
+
         user_state.reward_snapshot = token_state.reward_per_token;
+        let mut events = updateLock(deps, env, msg.sender, user_state.locked_until)?;
+        events.add(
+            Event::new("claim")
+                .add_attribute("ve_balances", &user_state.balance.to_string())
+                .add_attribute("claim_amount", &pending_reward.to_string()),
+        );
 
-        let events = [Event::new("claim")];
-
-        Ok(events)
+        Ok(Response::new().add_messages(messages).add_events(events))
     }
 
     pub fn updateLock(

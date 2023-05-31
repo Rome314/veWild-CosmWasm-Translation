@@ -8,6 +8,8 @@ pub enum ContractError {
     Std(#[from] StdError),
     #[error("VeToken: accrue first")]
     AccrueFirst {},
+    #[error("VeToken: claim first")]
+    ClaimFirst {},
     #[error("VeToken: distribution period must be >= 100 blocks")]
     ZeroDistributionPeriod {},
 }

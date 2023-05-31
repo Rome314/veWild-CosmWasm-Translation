@@ -4,7 +4,7 @@ use cw20::Denom;
 use cw_storage_plus::{Item, Map};
 
 pub const SECONDS_PER_DAY: Uint64 = 24 * 60 * 60;
-pub const MIN_LOCK_PERIOD: Uint64 = 1460 * SECONDS_PER_DAY;
+pub const MAX_LOCK_PERIOD: Uint64 = 1460 * SECONDS_PER_DAY;
 pub const WITHDRAW_DELAY: Uint64 = 1 * SECONDS_PER_DAY;
 
 pub const TOKEN_NAME: String = String::from("veWILD");
@@ -54,9 +54,9 @@ impl TokenState {
 pub struct UserState {
     pub balance: Uint128,         // balance
     pub locaked_balance: Uint128, // locked
-    pub locked_until: u64,
-    pub reward_snapshot: u64, //TODO: check type
-    pub withdraw_at: u64,     //TODO: check type
+    pub locked_until: Uint64,
+    pub reward_snapshot: Uint128, //TODO: check type
+    pub withdraw_at: Uint64,      //TODO: check type
 }
 
 impl UserState {

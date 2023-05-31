@@ -38,7 +38,7 @@ pub fn instantiate(
 mod utils {
     use std::ops::Mul;
 
-    use cosmwasm_std::{Event, Uint128, Uint64};
+    use cosmwasm_std::{Addr, Event, Uint128, Uint64};
 
     use super::*;
 
@@ -60,15 +60,93 @@ mod utils {
                }
         */
         user_state.reward_snapshot = token_state.reward_per_token;
-        // TODO:finish
-        
 
         let events = [Event::new("claim")];
 
         Ok(events)
     }
 
-    
+    pub fn updateLock(
+        deps: DepsMut,
+        env: Env,
+        account: Addr,
+        new_locked_until: Uint128,
+    ) -> Result<[Event], ContractError> {
+        let current_block = Uint64::from(env.block.height);
+
+        let lock_seconds = if new_locked_until > current_block {
+            new_locked_until - current_block
+        } else {
+            0
+        };
+
+        let user_state = USER_STATE.load(&deps.storage, &account)?;
+
+        let new_balance = (user_state.locaked_balance * lock_seconds) / MAX_LOCK_PERIOD;
+        user_state.locked_until = new_locked_until;
+        USER_STATE.save(deps.storage, &account, &user_state)?;
+        setBalance(deps, &account, new_balance);
+
+        Ok(());
+    }
+
+    pub fn setBalance(
+        deps: DepsMut,
+        account: &Addr,
+        amount: Uint128,
+    ) -> Result<[Event], ContractError> {
+        let mut user_state: UserState = USER_STATE.key(account)?;
+        let token_state = TOKEN_STATE.load(&deps.storage)?;
+        if !user_state.reward_snapshot.eq(&token_state.reward_per_token) {
+            Result::Err(ContractError::ClaimFirst {})
+        }
+
+        let user_banalance = user_state.balance;
+        let events: [Event];
+        if amount > user_banalance {
+            events = mint(deps, account, amount - user_banalance);
+        } else if amount < user_banalance {
+            events = burn(deps, account, user_banalance - amount);
+        }
+
+        Ok(events)
+    }
+
+    pub fn mint(deps: DepsMut, account: &Addr, amount: Uint128) -> Event {
+        let mut token_state: TokenState = TOKEN_STATE.load(&deps.storage)?;
+        let mut user_state: UserState = USER_STATE.key(account)?;
+
+        user_state.balance += amount;
+        token_state.total_supply += amount;
+
+        TOKEN_STATE.save(deps.storage, &token_state);
+        USER_STATE.save(deps.storage, account, &user_state);
+
+        // TODO: Check for cw20 events
+        Event::new("transfer").add_attributes(vec![
+            ("from", "0"),
+            ("to", &account.to_string()),
+            ("amount", &amount.to_string()),
+        ])
+    }
+
+    pub fn burn(deps: DepsMut, account: &Addr, amount: Uint128) -> Event {
+        let mut token_state: TokenState = TOKEN_STATE.load(&deps.storage)?;
+        let mut user_state: UserState = USER_STATE.key(account)?;
+
+        user_state.balance -= amount;
+        token_state.total_supply += amount;
+
+        TOKEN_STATE.save(deps.storage, &token_state);
+        USER_STATE.save(deps.storage, account, &user_state);
+
+        // TODO: Check for cw20 events
+        Event::new("transfer").add_attributes(vec![
+            ("from", &account.to_string()),
+            ("to", "0"),
+            ("amount", &amount.to_string()),
+        ])
+    }
 
     pub fn setDistributionPeriod(
         deps: DepsMut,

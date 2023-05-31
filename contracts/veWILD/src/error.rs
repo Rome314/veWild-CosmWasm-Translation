@@ -12,4 +12,6 @@ pub enum ContractError {
     ClaimFirst {},
     #[error("VeToken: distribution period must be >= 100 blocks")]
     ZeroDistributionPeriod {},
+    #[error("VeToken: reserve balance too low")]
+    InsufficientReserves {},
 }

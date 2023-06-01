@@ -1,16 +1,16 @@
-use cosmwasm_schema::{cw_serde, QueryResponses};
-use cosmwasm_std::Addr;
+use cosmwasm_schema::{ cw_serde, QueryResponses };
+use cosmwasm_std::{ Addr, Uint64, Uint128 };
 
 #[cw_serde]
 pub struct InstantiateMsg {
     pub locked_token: Addr,
-    pub distribution_period: u64,
+    pub distribution_period: Uint64,
 }
 
 #[cw_serde]
 pub struct LockMsg {
-    pub amount: u128,
-    pub new_locked_until: u64,
+    pub amount: Uint128,
+    pub new_locked_until: Uint64,
 }
 
 #[cw_serde]
@@ -24,12 +24,12 @@ pub struct ClaimMsg {}
 
 #[cw_serde]
 pub struct AddIncomeMsg {
-    pub add_amount: u128,
+    pub add_amount: Uint128,
 }
 
 #[cw_serde]
 pub struct SetDistributionPeriodMsg {
-    pub blocks: u64,
+    pub blocks: Uint64,
 }
 
 // This is for differentiating the messages in execute()

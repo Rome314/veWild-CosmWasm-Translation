@@ -8,12 +8,6 @@ pub struct InstantiateMsg {
 }
 
 #[cw_serde]
-pub struct LockMsg {
-    pub amount: Uint128,
-    pub new_locked_until: Uint64,
-}
-
-#[cw_serde]
 pub struct RequestWithdrawMsg {}
 
 #[cw_serde]
@@ -22,25 +16,22 @@ pub struct WithdrawMsg {}
 #[cw_serde]
 pub struct ClaimMsg {}
 
-#[cw_serde]
-pub struct AddIncomeMsg {
-    pub add_amount: Uint128,
-}
-
-#[cw_serde]
-pub struct SetDistributionPeriodMsg {
-    pub blocks: Uint64,
-}
-
 // This is for differentiating the messages in execute()
 #[cw_serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    Lock(LockMsg),
-    RequestWithdraw(RequestWithdrawMsg),
-    Withdraw(WithdrawMsg),
-    Claim(ClaimMsg),
-    AddIncome(AddIncomeMsg),
-    SetDistributionPeriod(SetDistributionPeriodMsg),
+    LockMsg {
+        amount: Uint128,
+        new_locked_until: Uint64,
+    },
+    RequestWithdrawMsg,
+    WithdrawMsg,
+    ClaimMsg,
+    AddIncomeMsg {
+        add_amount: Uint128,
+    },
+    SetDistributionPeriodMsg {
+        blocks: Uint64,
+    },
 }
 
 // More queries based on the contract ...

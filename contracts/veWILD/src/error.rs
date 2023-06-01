@@ -1,5 +1,4 @@
-use cosmwasm_std::{ Addr, StdError };
-use cw_utils::PaymentError;
+use cosmwasm_std::{ StdError };
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq)]
@@ -9,6 +8,17 @@ pub enum ContractError {
     #[error("VeToken: claim first")] ClaimFirst {},
     #[error("VeToken: distribution period must be >= 100 blocks")] ZeroDistributionPeriod {},
     #[error("VeToken: reserve balance too low")] InsufficientReserves {},
+    #[error("Unauthorized")] Unauthorized {},
 
-    #[error("{0}")] CW20Base(#[from] cw20_base::ContractError),
+    #[error("VeToken: lock time too long")] LockPeriodTooLong {},
+    #[error("VeToken: cannot reduce locked time")] CannotReduceLockedTime {},
+    #[error("VeToken: lock time too short")] LockPeriodTooShort {},
+
+    #[error("VeToken: nothing to withdraw")] NothingToWithdraw {},
+    #[error("VeToken: cannot withdraw before unlock")] WithdrawBeforeUnlock {},
+    #[error("VeToken: withdraw delay not over")] WithdrawDelayNotOver {},
+
+    #[error("Unimplemented")] Unimplemented {},
+
+    #[error("{0}")] CW20BaseError(String),
 }

@@ -50,27 +50,6 @@ impl TokenState {
         cw20_client::CW20Client::new(deps, self.locked_token)
     }
 
-    pub fn set_distribution_period(
-        &self,
-        current_block: Uint64,
-        blocks: Uint64
-    ) -> Result<Response, ContractError> {
-        if blocks.is_zero() {
-            return Result::Err(ContractError::ZeroDistributionPeriod {});
-        }
-        self.accrue(current_block);
-        self.update_reward_rate(UpdateRewardRateInput {
-            add_amount: Uint128::zero(),
-            new_distribution_period: blocks,
-            current_block: current_block,
-        })?;
-
-        let event = ContractEvent::NewDistributionPeriod { value: blocks };
-        let resp = Response::new().add_attributes(event.to_attributes());
-
-        Ok(resp)
-    }
-
     pub fn update_reward_rate(
         &self,
         input: UpdateRewardRateInput
@@ -86,9 +65,8 @@ impl TokenState {
             input.current_block - self.last_income_block
         );
 
-        let unvested_income = self.reward_rate_stored.mul(
-            Uint128::from(self.distribution_period - blocks_elapsed)
-        );
+        let unvested_income =
+            self.reward_rate_stored * Uint128::from(self.distribution_period - blocks_elapsed);
 
         self.reward_rate_stored =
             (unvested_income + input.add_amount) / Uint128::from(input.new_distribution_period);
@@ -96,11 +74,6 @@ impl TokenState {
         self.last_income_block = input.current_block;
 
         return Ok(unvested_income);
-    }
-
-    pub fn accrue(&self, current_block: Uint64) {
-        self.reward_per_token += self.pending_reward_per_token(current_block);
-        self.last_accrue_block = current_block;
     }
 
     pub fn reward_rate(&self, block_height: Uint64) -> Uint128 {
@@ -121,4 +94,3 @@ pub struct UserState {
     pub reward_snapshot: Uint128, //TODO: check type
     pub withdraw_at: Uint64, //TODO: check type
 }
-

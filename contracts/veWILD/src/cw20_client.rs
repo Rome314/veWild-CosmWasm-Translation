@@ -7,7 +7,7 @@ pub struct CW20Client<'a> {
 }
 
 impl<'a> CW20Client<'a> {
-    pub fn new(deps: &Deps, contract_addr: Addr) -> Self {
+    pub fn new(deps: Deps, contract_addr: Addr) -> Self {
         Self {
             deps,
             contract_addr,

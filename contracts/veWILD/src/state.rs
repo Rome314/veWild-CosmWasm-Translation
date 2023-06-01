@@ -46,7 +46,7 @@ impl TokenState {
         }
     }
 
-    pub fn locked_token_client(&self, deps: DepsMut) -> CW20Client {
+    pub fn locked_token_client(&self, deps: Deps) -> CW20Client {
         cw20_client::CW20Client::new(deps, self.locked_token)
     }
 

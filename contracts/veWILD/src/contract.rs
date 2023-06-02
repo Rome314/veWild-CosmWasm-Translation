@@ -16,7 +16,6 @@ use cosmwasm_std::{
     StdResult,
     Uint64,
     Uint128,
-    Storage,
 };
 use cw2::set_contract_version;
 use cw20_base::state::{ MinterData, TOKEN_INFO, TokenInfo };
@@ -30,7 +29,7 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub fn instantiate(
     deps: DepsMut,
     env: Env,
-    info: MessageInfo,
+    _info: MessageInfo,
     msg: InstantiateMsg
 ) -> Result<Response, ContractError> {
     // nonpayable(&info)?;

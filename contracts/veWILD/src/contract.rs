@@ -16,6 +16,7 @@ use cosmwasm_std::{
     StdResult,
     Uint64,
     Uint128,
+    Storage,
 };
 use cw2::set_contract_version;
 use cw20_base::state::{ MinterData, TOKEN_INFO, TokenInfo };
@@ -37,8 +38,8 @@ pub fn instantiate(
 
     // store token info using cw20-base format
     let data = TokenInfo {
-        name: TOKEN_NAME,
-        symbol: TOKEN_SYMBOL,
+        name: "veWILD".to_string(),
+        symbol: "veWILD".to_string(),
         decimals: TOKEN_DECIMALS,
         total_supply: Uint128::zero(),
         // set self as minter, so we can properly execute mint and burn
@@ -52,10 +53,15 @@ pub fn instantiate(
     let mut token_state: TokenState = TokenState::default();
     TOKEN_STATE.save(deps.storage, &token_state)?;
 
-    let response = utils::set_distribution_period(&deps, &env., msg.distribution_period)?;
+    let current_block = Uint64::from(env.block.height.clone());
+    let response = token_state.set_distribution_period(
+        deps.storage,
+        current_block,
+        msg.distribution_period
+    )?;
 
     token_state.locked_token = msg.locked_token;
-    token_state.last_accrue_block = Uint64::from(env.block.height);
+    token_state.last_accrue_block = current_block;
 
     TOKEN_STATE.save(deps.storage, &token_state)?;
 
@@ -70,75 +76,12 @@ pub fn instantiate(
 mod utils {
     use super::*;
 
-    pub fn set_distribution_period(
-        deps: &DepsMut,
-        env: &Env,
-        blocks: Uint64
-    ) -> Result<Response, ContractError> {
-        if blocks.is_zero() {
-            return Result::Err(ContractError::ZeroDistributionPeriod {});
-        }
-
-        accrue(deps, env)?;
-
-        let token_state = TOKEN_STATE.load(deps.storage)?;
-        let current_block = Uint64::from(env.block.height);
-
-        token_state.update_reward_rate(UpdateRewardRateInput {
-            add_amount: Uint128::zero(),
-            new_distribution_period: blocks,
-            current_block: current_block,
-        })?;
-
-        TOKEN_STATE.save(deps.storage, &token_state)?;
-
-        let event = ContractEvent::NewDistributionPeriod { value: blocks };
-        let resp = Response::new().add_attributes(event.to_attributes());
-
-        Ok(resp)
-    }
-
-    pub fn accrue(deps: &DepsMut, env: &Env) -> Result<(), ContractError> {
-        let mut token_state = TOKEN_STATE.load(deps.storage)?;
-        let current_block = Uint64::from(env.block.height);
-
-        token_state.reward_per_token += pending_reward_per_token(deps.as_ref(), *env);
-        token_state.last_accrue_block = current_block;
-
-        TOKEN_STATE.save(deps.storage, &token_state);
-        Ok(())
-    }
-
-    pub fn pending_account_reward(deps: Deps, env: Env, info: MessageInfo) -> Uint128 {
-        let token_state = TOKEN_STATE.load(deps.storage).unwrap();
-        let user_state = USER_STATE.load(deps.storage, &info.sender).unwrap();
-
-        let pending_reward_per_token =
-            token_state.reward_per_token + pending_reward_per_token(deps, env);
-        let reward_per_token_delta = pending_reward_per_token - user_state.reward_snapshot;
-
-        let balance = query_balance(deps, info.sender.into_string()).unwrap();
-
-        return (reward_per_token_delta * balance.balance) / Uint128::from(TOKEN_DECIMALS); //Decimals?
-    }
-
-    pub fn pending_reward_per_token(deps: Deps, env: Env) -> Uint128 {
-        let token_state = TOKEN_STATE.load(deps.storage).unwrap();
-        let current_block = Uint64::from(env.block.height);
-        let total_supply = query_token_info(deps).unwrap().total_supply;
-
-        if total_supply.is_zero() {
-            return Uint128::zero();
-        }
-
-        let blocks_elapsed = Uint128::from(current_block - token_state.last_accrue_block);
-        return (blocks_elapsed * token_state.reward_rate(current_block)) / total_supply;
-    }
-
-    pub fn check_reserves(deps: Deps, env: Env) -> Result<(), ContractError> {
+    pub fn check_reserves(deps: Deps, env: &Env) -> Result<(), ContractError> {
         let token_state = TOKEN_STATE.load(deps.storage)?;
 
-        let reserve_balance = token_state.locked_token_client(deps).balance(env.contract.address)?;
+        let reserve_balance = token_state
+            .locked_token_client(&deps)
+            .balance(env.contract.address.clone())?;
 
         let current_block = Uint64::from(env.block.height);
         let blocks_elapsed = token_state.distribution_period.min(
@@ -155,51 +98,60 @@ mod utils {
         Ok(())
     }
 
-    pub fn claim(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, ContractError> {
-        accrue(&deps, &env)?;
-
-        let token_state = TOKEN_STATE.load(deps.storage)?;
+    pub fn claim(
+        mut deps: DepsMut,
+        env: &Env,
+        info: &MessageInfo
+    ) -> Result<Response, ContractError> {
+        let mut token_state = TOKEN_STATE.load(deps.storage)?;
         let current_block = Uint64::from(env.block.height);
+
+        token_state.accrue(deps.storage, current_block)?;
 
         let mut user_state = USER_STATE.load(deps.storage, &info.sender)?;
 
-        let pending_reward = utils::pending_account_reward(deps.as_ref(), env, info);
+        let pending_reward = user_state.pending_reward(
+            token_state.reward_per_token,
+            token_state.pending_reward_per_token(current_block)
+        );
 
-        let locked_token_client = token_state.locked_token_client(deps.as_ref());
+        let deps_ref = deps.as_ref();
+        let locked_token_client = token_state.locked_token_client(&deps_ref);
         if !pending_reward.is_zero() {
-            locked_token_client.transfer(info.sender, pending_reward);
+            locked_token_client.transfer(info.sender.to_owned(), pending_reward);
         }
 
         user_state.reward_snapshot = token_state.reward_per_token;
 
-        USER_STATE.save(deps.storage, &info.sender, &user_state)?;
+        let user_address = info.sender.clone().to_string();
+
+        USER_STATE.save(deps.storage, &info.sender.to_owned(), &user_state)?;
         TOKEN_STATE.save(deps.storage, &token_state)?;
 
-        let mut response: Response = updateLock(
-            deps,
+        let response: Response = updateLock(
+            deps.branch(),
             env,
             info,
-            info.sender,
+            &info.sender,
             user_state.locked_until
         )?;
-        let user_balance = query_balance(deps.as_ref(), info.sender.into_string())?.balance;
+        let user_balance = query_balance(deps.as_ref(), user_address.clone())?.balance;
 
         let event = ContractEvent::Claim {
-            account: info.sender,
+            account: user_address,
             claim_amount: pending_reward,
             ve_balance: user_balance,
         };
-        response.add_attributes(event.to_attributes());
+        let response = response.add_attributes(event.to_attributes());
 
         Ok(response)
     }
 
     pub fn updateLock(
-        deps: DepsMut,
-        env: Env,
-        info: MessageInfo,
-        // TODO: Do I need refs here?
-        account: Addr,
+        mut deps: DepsMut,
+        env: &Env,
+        info: &MessageInfo,
+        account: &Addr,
         new_locked_until: Uint64
     ) -> Result<Response, ContractError> {
         let current_block = Uint64::from(env.block.height);
@@ -219,13 +171,13 @@ mod utils {
 
         USER_STATE.save(deps.storage, &account, &user_state)?;
 
-        return setBalance(deps, env, info, &account, new_balance);
+        return setBalance(deps, &env, &info, &account, new_balance);
     }
 
     pub fn setBalance(
-        deps: DepsMut,
-        env: Env,
-        info: MessageInfo,
+        mut deps: DepsMut,
+        env: &Env,
+        info: &MessageInfo,
         account: &Addr,
         amount: Uint128
     ) -> Result<Response, ContractError> {
@@ -236,23 +188,32 @@ mod utils {
             return Result::Err(ContractError::ClaimFirst {});
         }
 
-        let mut cw20_result: Result<Response, cw20_base::ContractError>;
-        let user_balance = token_state
-            .locked_token_client(deps.as_ref())
-            .balance(account.to_owned())
-            .unwrap();
-        if amount > user_balance {
+        let set_amount = user_state.balance - amount;
+        let mut cw20_result: Result<Response, cw20_base::ContractError> = Ok(Response::default());
+        if amount > user_state.balance {
             cw20_result = execute_mint(
-                deps,
-                env,
-                info,
-                account.into_string(),
-                amount - user_balance
+                deps.branch(),
+                env.to_owned(),
+                info.to_owned(),
+                account.to_string(),
+                set_amount
             );
-        } else if amount < user_balance {
+        } else if amount < user_state.balance {
             // TODO: ensure that amount is burnt from user
-            cw20_result = execute_burn(deps, env, info, user_balance - amount);
+            cw20_result = execute_burn(deps.branch(), env.to_owned(), info.to_owned(), set_amount);
         }
+
+        let total_supply = query_token_info(deps.as_ref()).unwrap().total_supply;
+        TOKEN_STATE.update(
+            deps.storage,
+            |mut state| -> Result<_, ContractError> {
+                state.total_supply = total_supply;
+                Ok(state)
+            }
+        )?;
+
+        user_state.balance = amount;
+        USER_STATE.save(deps.storage, account, &user_state)?;
 
         match cw20_result {
             Ok(resp) => {
@@ -297,7 +258,7 @@ mod exec {
 
     // TODO: nonReentrant(?)
     pub fn execute_lock(
-        deps: DepsMut,
+        mut deps: DepsMut,
         env: Env,
         info: MessageInfo,
         amount: Uint128,
@@ -328,7 +289,7 @@ mod exec {
 
         let mut response = Response::new();
 
-        let claim_response = utils::claim(deps, env, info)?;
+        let claim_response = utils::claim(deps.branch(), &env, &info)?;
         let cosmos_messages: Vec<CosmosMsg> = claim_response.messages
             .iter()
             .map(|msg| msg.msg.clone())
@@ -344,18 +305,18 @@ mod exec {
 
             // TODO: check returns
             token_state
-                .locked_token_client(deps.as_ref())
-                .transfer_from(info.sender, env.contract.address, amount)?;
+                .locked_token_client(&deps.as_ref())
+                .transfer_from(info.sender.to_owned(), env.contract.address.to_owned(), amount)?;
         }
 
         USER_STATE.save(deps.storage, &info.sender, &user_state);
         TOKEN_STATE.save(deps.storage, &token_state)?;
 
         let update_lock_response = utils::updateLock(
-            deps,
-            env,
-            info,
-            info.sender,
+            deps.branch(),
+            &env,
+            &info,
+            &info.sender,
             new_locked_until
         )?;
         let cosmos_messages: Vec<CosmosMsg> = update_lock_response.messages
@@ -364,12 +325,12 @@ mod exec {
             .collect();
         response = response.add_messages(cosmos_messages).add_events(update_lock_response.events);
 
-        utils::check_reserves(deps.as_ref(), env)?;
+        utils::check_reserves(deps.as_ref(), &env)?;
 
-        let ve_balance = query_balance(deps.as_ref(), info.sender.into_string())?;
+        let ve_balance = query_balance(deps.as_ref(), info.sender.to_owned().into_string())?;
 
         let event = ContractEvent::Lock {
-            account: info.sender,
+            account: info.sender.to_string(),
             locked_until: new_locked_until,
             locked_balance: user_state.locked_balance,
             ve_balance: ve_balance.balance,
@@ -382,7 +343,7 @@ mod exec {
 
     // TODO: nonReentrant(?)
     pub fn execute_request_withdraw(
-        deps: DepsMut,
+        mut deps: DepsMut,
         env: Env,
         info: MessageInfo
     ) -> Result<Response, ContractError> {
@@ -398,13 +359,13 @@ mod exec {
             return Result::Err(ContractError::WithdrawBeforeUnlock {});
         }
 
-        let mut response = utils::claim(deps, env, info)?;
+        let mut response = utils::claim(deps.branch(), &env, &info)?;
 
         user_state.withdraw_at = current_time + Uint64::from(WITHDRAW_DELAY);
-        USER_STATE.save(deps.storage, &info.sender, &user_state)?;
+        USER_STATE.save(deps.storage, &info.sender.clone(), &user_state)?;
 
         let event = ContractEvent::WithdrawRequest {
-            account: info.sender,
+            account: info.sender.to_string(),
             amount: withdraw_amount,
             withdraw_at: user_state.withdraw_at,
         };
@@ -416,7 +377,7 @@ mod exec {
 
     // TODO: nonReentrant(?)
     pub fn execute_withdraw(
-        deps: DepsMut,
+        mut deps: DepsMut,
         env: Env,
         info: MessageInfo
     ) -> Result<Response, ContractError> {
@@ -429,7 +390,7 @@ mod exec {
             return Result::Err(ContractError::WithdrawDelayNotOver {});
         }
 
-        utils::claim(deps, env, info)?;
+        utils::claim(deps.branch(), &env, &info)?;
 
         let withdraw_amount = user_state.locked_balance;
         user_state.withdraw_at = Uint64::zero();
@@ -443,7 +404,13 @@ mod exec {
 
         let mut response = Response::new();
 
-        let set_balance_resp = utils::setBalance(deps, env, info, &info.sender, Uint128::zero())?;
+        let set_balance_resp = utils::setBalance(
+            deps.branch(),
+            &env,
+            &info,
+            &info.sender.to_owned(),
+            Uint128::zero()
+        )?;
         let cosmos_messages: Vec<CosmosMsg> = set_balance_resp.messages
             .iter()
             .map(|msg| msg.msg.clone())
@@ -451,15 +418,15 @@ mod exec {
         response = response.add_messages(cosmos_messages).add_events(set_balance_resp.events);
 
         let cosmos_messages = token_state
-            .locked_token_client(deps.as_ref())
-            .transfer(info.sender, withdraw_amount)?;
+            .locked_token_client(&deps.as_ref())
+            .transfer(info.sender.to_owned(), withdraw_amount)?;
         response = response.add_message(cosmos_messages);
 
-        utils::check_reserves(deps.as_ref(), env)?;
+        utils::check_reserves(deps.as_ref(), &env)?;
 
         let event = ContractEvent::Withdraw {
             amount: withdraw_amount,
-            account: info.sender,
+            account: info.sender.to_string(),
         };
 
         response = response.add_attributes(event.to_attributes());
@@ -469,20 +436,20 @@ mod exec {
 
     // TODO: nonReentrant(?)
     pub fn execute_claim(
-        deps: DepsMut,
+        mut deps: DepsMut,
         env: Env,
         info: MessageInfo
     ) -> Result<Response, ContractError> {
         let mut response = Response::new();
 
-        let claim_resp = utils::claim(deps, env, info)?;
+        let claim_resp = utils::claim(deps.branch(), &env, &info)?;
         let cosmos_messages: Vec<CosmosMsg> = claim_resp.messages
             .iter()
             .map(|msg| msg.msg.clone())
             .collect();
 
         response = response.add_messages(cosmos_messages).add_events(claim_resp.events);
-        utils::check_reserves(deps.as_ref(), env)?;
+        utils::check_reserves(deps.as_ref(), &env)?;
 
         Ok(response)
     }
@@ -494,23 +461,22 @@ mod exec {
         info: MessageInfo,
         add_amount: Uint128
     ) -> Result<Response, ContractError> {
-        accrue(&deps, &env)?;
-
         let mut token_state = TOKEN_STATE.load(deps.storage)?;
         let current_block = Uint64::from(env.block.height);
 
-        let transfer_message = token_state
-            .locked_token_client(deps.as_ref())
-            .transfer_from(info.sender, env.contract.address, add_amount)?;
+        token_state.accrue(deps.storage, current_block)?;
 
+        let transfer_message = token_state
+            .locked_token_client(&deps.as_ref())
+            .transfer_from(info.sender, env.contract.address.clone(), add_amount)?;
         let response = Response::new().add_message(transfer_message);
 
-        let unvested_income = token_state.update_reward_rate(UpdateRewardRateInput {
+        let unvested_income = token_state.update_reward_rate(deps.storage, UpdateRewardRateInput {
             add_amount: add_amount,
             new_distribution_period: token_state.distribution_period,
             current_block,
         })?;
-        utils::check_reserves(deps.as_ref(), env)?;
+        utils::check_reserves(deps.as_ref(), &env)?;
 
         TOKEN_STATE.save(deps.storage, &token_state)?;
 
@@ -519,40 +485,24 @@ mod exec {
             remaining_amount: unvested_income,
             reward_rate: token_state.reward_rate_stored,
         };
-        response.add_attributes(event.to_attributes());
+        let response = response.add_attributes(event.to_attributes());
 
         Ok(response)
     }
 
     pub fn execute_set_distribution_period(
-        deps: DepsMut,
+        mut deps: DepsMut,
         env: Env,
         info: MessageInfo,
-        blocks: Uint64
+        new_distribution_period: Uint64
     ) -> Result<Response, ContractError> {
-        let mut response = set_distribution_period(&deps, &env, blocks)?;
-        accrue(&deps, &env)?;
-
         let mut token_state = TOKEN_STATE.load(deps.storage)?;
         let current_block = Uint64::from(env.block.height);
-
-        let unvested_income = token_state.update_reward_rate(UpdateRewardRateInput {
-            add_amount: Uint128::zero(),
-            new_distribution_period: blocks,
+        return token_state.set_distribution_period(
+            deps.storage,
             current_block,
-        })?;
-        utils::check_reserves(deps.as_ref(), env)?;
-
-        TOKEN_STATE.save(deps.storage, &token_state)?;
-
-        let event = ContractEvent::NewIncome {
-            add_amount: Uint128::zero(),
-            remaining_amount: unvested_income,
-            reward_rate: token_state.reward_rate_stored,
-        };
-        response = response.add_attributes(event.to_attributes());
-
-        Ok(response)
+            new_distribution_period
+        );
     }
 }
 

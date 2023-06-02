@@ -1,13 +1,13 @@
-use cosmwasm_std::{ to_binary, Addr, Deps, StdResult, Uint128, WasmMsg };
+use cosmwasm_std::{ to_binary, Addr, Deps, StdResult, Uint128, WasmMsg, Querier, QuerierWrapper };
 use cw20::{ BalanceResponse, Cw20ExecuteMsg, Cw20QueryMsg };
 
 pub struct CW20Client<'a> {
-    deps: Deps<'a>,
+    deps: &'a Deps<'a>,
     contract_addr: Addr,
 }
 
 impl<'a> CW20Client<'a> {
-    pub fn new(deps: Deps, contract_addr: Addr) -> Self {
+    pub fn new(deps: &'a Deps<'a>, contract_addr: Addr) -> Self {
         Self {
             deps,
             contract_addr,

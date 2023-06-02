@@ -1,23 +1,23 @@
-use cosmwasm_std::{ Addr, Uint128, Uint64, Attribute };
+use cosmwasm_std::{  Uint128, Uint64, Attribute };
 
 pub enum ContractEvent {
     Lock {
-        account: Addr,
+        account: String,
         locked_balance: Uint128,
         ve_balance: Uint128,
         locked_until: Uint64,
     },
     WithdrawRequest {
-        account: Addr,
+        account: String,
         amount: Uint128,
         withdraw_at: Uint64,
     },
     Withdraw {
-        account: Addr,
+        account: String,
         amount: Uint128,
     },
     Claim {
-        account: Addr,
+        account: String,
         claim_amount: Uint128,
         ve_balance: Uint128,
     },

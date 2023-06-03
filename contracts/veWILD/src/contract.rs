@@ -71,8 +71,9 @@ pub fn instantiate(
 }
 
 //  Internal functions
-// TODO: Check is there better way to do this
 mod utils {
+    use cosmwasm_std::WasmMsg;
+
     use super::*;
 
     pub fn check_reserves(deps: Deps, env: &Env) -> Result<(), ContractError> {
@@ -116,8 +117,10 @@ mod utils {
 
         let deps_ref = deps.as_ref();
         let locked_token_client = token_state.locked_token_client(&deps_ref);
+        let mut messages: Vec<WasmMsg> = vec![];
         if !pending_reward.is_zero() {
-            locked_token_client.transfer(info.sender.to_owned(), pending_reward);
+            let msg = locked_token_client.transfer(info.sender.to_owned(), pending_reward)?;
+            messages.push(msg.into());
         }
 
         user_state.reward_snapshot = token_state.reward_per_token;
@@ -127,7 +130,7 @@ mod utils {
         USER_STATE.save(deps.storage, &info.sender.to_owned(), &user_state)?;
         TOKEN_STATE.save(deps.storage, &token_state)?;
 
-        let response: Response = updateLock(
+        let response: Response = update_lock(
             deps.branch(),
             env,
             info,
@@ -141,13 +144,13 @@ mod utils {
             claim_amount: pending_reward,
             ve_balance: user_balance,
         };
-        let response = response.add_attributes(event.to_attributes());
+        let response = response.add_attributes(event.to_attributes()).add_messages(messages);
 
         Ok(response)
     }
 
-    pub fn updateLock(
-        mut deps: DepsMut,
+    pub fn update_lock(
+        deps: DepsMut,
         env: &Env,
         info: &MessageInfo,
         account: &Addr,
@@ -170,10 +173,10 @@ mod utils {
 
         USER_STATE.save(deps.storage, &account, &user_state)?;
 
-        return setBalance(deps, &env, &info, &account, new_balance);
+        return set_balance(deps, &env, &info, &account, new_balance);
     }
 
-    pub fn setBalance(
+    pub fn set_balance(
         mut deps: DepsMut,
         env: &Env,
         info: &MessageInfo,
@@ -308,10 +311,10 @@ mod exec {
                 .transfer_from(info.sender.to_owned(), env.contract.address.to_owned(), amount)?;
         }
 
-        USER_STATE.save(deps.storage, &info.sender, &user_state);
+        USER_STATE.save(deps.storage, &info.sender, &user_state)?;
         TOKEN_STATE.save(deps.storage, &token_state)?;
 
-        let update_lock_response = utils::updateLock(
+        let update_lock_response = utils::update_lock(
             deps.branch(),
             &env,
             &info,
@@ -403,7 +406,7 @@ mod exec {
 
         let mut response = Response::new();
 
-        let set_balance_resp = utils::setBalance(
+        let set_balance_resp = utils::set_balance(
             deps.branch(),
             &env,
             &info,

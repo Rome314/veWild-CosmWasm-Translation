@@ -279,7 +279,9 @@ contract VeToken is SafeOwnable, ReentrancyGuard {
         emit Transfer(_account, address(0), _amount);
     }
 
-    function _pendingRewardPerToken() internal view returns (uint) {
+// The function _pendingRewardPerToken calculates the amount of reward tokens that have been accrued since the last time the reward tokens were distributed. 
+// This allows the user to see if they have any pending rewards.
+function _pendingRewardPerToken() internal view returns (uint) {
         if (totalSupply == 0) {
             return 0;
         }
@@ -288,6 +290,11 @@ contract VeToken is SafeOwnable, ReentrancyGuard {
         return (blocksElapsed * rewardRate() * 1e18) / totalSupply;
     }
 
+    /**
+     * @dev Checks that the reserve balance is greater than the total locked
+     * tokens plus the unvested income. This is to ensure that the system
+     * will be able to pay out all locked tokens and rewards.
+     */
     function _checkReserves() internal view {
         uint reserveBalance = IERC20(lockedToken).balanceOf(address(this));
 
@@ -303,4 +310,5 @@ contract VeToken is SafeOwnable, ReentrancyGuard {
             "VeToken: reserve balance too low"
         );
     }
+
 }

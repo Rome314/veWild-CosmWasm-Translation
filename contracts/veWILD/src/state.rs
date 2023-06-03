@@ -121,7 +121,7 @@ impl TokenState {
         self.distribution_period = input.new_distribution_period;
         self.last_income_block = input.current_block;
 
-        TOKEN_STATE.save(storage, &self);
+        TOKEN_STATE.save(storage, &self)?;
         Ok(unvested_income)
     }
 
@@ -157,3 +157,5 @@ impl UserState {
         return (reward_per_token_delta * self.balance) / Uint128::from(TOKEN_DECIMALS); //Decimals?
     }
 }
+
+

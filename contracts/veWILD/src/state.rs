@@ -1,7 +1,5 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{ Addr, Deps, DepsMut, StdResult, Uint128, Uint64, Response, Storage };
-use cw20::Denom;
-use cw20_base::contract::query_token_info;
+use cosmwasm_std::{ Addr, Deps, Uint128, Uint64, Response, Storage };
 use cw_storage_plus::{ Item, Map };
 
 use crate::consts::TOKEN_DECIMALS;
@@ -26,7 +24,7 @@ pub struct TokenState {
     pub last_accrue_block: Uint64,
     pub last_income_block: Uint64,
     pub reward_per_token: Uint128,
-    pub reward_rate_stored: Uint128, //TODO: make private
+    pub reward_rate_stored: Uint128, //TODO: Don't return in Query
 }
 
 pub struct UpdateRewardRateInput {
@@ -80,7 +78,7 @@ impl TokenState {
         self.reward_per_token += self.pending_reward_per_token(current_block);
         self.last_accrue_block = current_block;
 
-        TOKEN_STATE.save(storage, self);
+        TOKEN_STATE.save(storage, self)?;
         Ok(())
     }
 
@@ -160,14 +158,14 @@ impl UserState {
 
 #[cfg(test)]
 mod state_tests {
-    use cosmwasm_std::testing::{ mock_dependencies, mock_env, mock_info };
+    use cosmwasm_std::testing::{ mock_dependencies };
 
     use super::{ * };
 
     #[test]
     fn test_update_reward_rate() {
         let mut binding = mock_dependencies();
-        let mut deps = binding.as_mut();
+        let deps = binding.as_mut();
 
         fn default_state() -> TokenState {
             TokenState {
@@ -220,10 +218,10 @@ mod state_tests {
 
         // 3. Test when there is left unvested  (blocks elapsed < distribution period)
         let mut state = default_state();
-        
-        let current_block = Uint64::from(101u64); // for maximal unvested income for current distribution period 
+
+        let current_block = Uint64::from(101u64); // for maximal unvested income for current distribution period
         state.last_accrue_block = current_block;
-        
+
         let new_distribution_period = Uint64::from(5u64);
         let input = UpdateRewardRateInput {
             add_amount: Uint128::from(100u128),

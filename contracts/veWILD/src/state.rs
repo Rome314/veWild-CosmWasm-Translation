@@ -158,4 +158,90 @@ impl UserState {
     }
 }
 
+#[cfg(test)]
+mod state_tests {
+    use cosmwasm_std::testing::{ mock_dependencies, mock_env, mock_info };
 
+    use super::{ * };
+
+    #[test]
+    fn test_update_reward_rate() {
+        let mut binding = mock_dependencies();
+        let mut deps = binding.as_mut();
+
+        fn default_state() -> TokenState {
+            TokenState {
+                total_supply: Uint128::from(1000u128),
+                total_locked: Uint128::from(1000u128),
+                distribution_period: Uint64::from(10u64),
+                locked_token: Addr::unchecked(""),
+                last_accrue_block: Uint64::from(100u64),
+                last_income_block: Uint64::from(100u64),
+                reward_per_token: Uint128::from(1u128),
+                reward_rate_stored: Uint128::from(1u128),
+            }
+        }
+
+        let mut state = default_state();
+        TOKEN_STATE.save(deps.storage, &state).unwrap();
+
+        let input = UpdateRewardRateInput {
+            add_amount: Uint128::from(100u128),
+            new_distribution_period: Uint64::from(100u64),
+            current_block: Uint64::from(90u64),
+        };
+
+        // 1. Test when accrue was not called
+        let err = state.update_reward_rate(deps.storage, input).unwrap_err();
+        assert_eq!(err, ContractError::AccrueFirst {}); // throw error
+        assert_eq!(state, TOKEN_STATE.load(deps.storage).unwrap()); // state is unchanged
+
+        // 2. Test when no left unvested income (blocks elapsed => distribution period)
+        let new_distribution_period = Uint64::from(100u64);
+        let current_block = Uint64::from(state.last_income_block + state.distribution_period);
+        let input = UpdateRewardRateInput {
+            add_amount: Uint128::from(100u128),
+            new_distribution_period: new_distribution_period.clone(),
+            current_block: current_block.clone(),
+        };
+        // accrue is happened
+        state.last_accrue_block = input.current_block;
+
+        let unvested_income = state.update_reward_rate(deps.storage, input).unwrap();
+
+        let mut expected_state = state.clone();
+        expected_state.distribution_period = new_distribution_period.clone();
+        expected_state.last_income_block = current_block;
+        expected_state.reward_rate_stored = Uint128::from(1u128); // (0 + 10)/10
+
+        assert_eq!(expected_state, state);
+        assert_eq!(expected_state, TOKEN_STATE.load(deps.storage).unwrap());
+        assert_eq!(unvested_income, Uint128::zero());
+
+        // 3. Test when there is left unvested  (blocks elapsed < distribution period)
+        let mut state = default_state();
+        
+        let current_block = Uint64::from(101u64); // for maximal unvested income for current distribution period 
+        state.last_accrue_block = current_block;
+        
+        let new_distribution_period = Uint64::from(5u64);
+        let input = UpdateRewardRateInput {
+            add_amount: Uint128::from(100u128),
+            new_distribution_period: new_distribution_period.clone(),
+            current_block: current_block.clone(),
+        };
+        // accrue is happened
+        state.last_accrue_block = input.current_block;
+
+        let unvested_income = state.update_reward_rate(deps.storage, input).unwrap();
+
+        let mut expected_state = state.clone();
+        expected_state.distribution_period = new_distribution_period;
+        expected_state.last_income_block = current_block;
+        expected_state.reward_rate_stored = Uint128::from(21u128); // (9 + 100)/5
+
+        assert_eq!(expected_state, state);
+        assert_eq!(expected_state, TOKEN_STATE.load(deps.storage).unwrap());
+        assert_eq!(unvested_income, Uint128::from(9u128));
+    }
+}

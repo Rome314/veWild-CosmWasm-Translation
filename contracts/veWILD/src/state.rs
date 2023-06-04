@@ -46,6 +46,11 @@ impl TokenState {
             reward_rate_stored: Uint128::zero(),
         }
     }
+
+    pub fn locked_token_client<'a>(&self, deps: &'a Deps<'a>) -> CW20Client<'a> {
+        cw20_client::CW20Client::new(deps, self.locked_token.clone())
+    }
+
     pub fn set_distribution_period(
         &mut self,
         storage: &mut dyn Storage,
@@ -91,10 +96,6 @@ impl TokenState {
         return (blocks_elapsed * self.reward_rate(current_block)) / self.total_supply;
     }
 
-    pub fn locked_token_client<'a>(&self, deps: &'a Deps<'a>) -> CW20Client<'a> {
-        cw20_client::CW20Client::new(deps, self.locked_token.clone())
-    }
-
     pub fn update_reward_rate(
         &mut self,
         storage: &mut dyn Storage,
@@ -122,9 +123,9 @@ impl TokenState {
         TOKEN_STATE.save(storage, &self)?;
         Ok(unvested_income)
     }
-
-    pub fn reward_rate(&self, block_height: Uint64) -> Uint128 {
-        let blocks_elapsed: Uint64 = block_height - self.last_income_block;
+    // Reward only while distribution period since last income
+    pub fn reward_rate(&self, current_block: Uint64) -> Uint128 {
+        let blocks_elapsed: Uint64 = current_block - self.last_income_block;
         let resp = if blocks_elapsed < self.distribution_period {
             self.reward_rate_stored
         } else {
@@ -152,7 +153,7 @@ impl UserState {
         let pending_reward_per_token = reward_per_token + pending_reward_per_token;
         let reward_per_token_delta = pending_reward_per_token - self.reward_snapshot;
 
-        return (reward_per_token_delta * self.balance) / Uint128::from(TOKEN_DECIMALS); //Decimals?
+        return (reward_per_token_delta * self.balance) / Uint128::from(TOKEN_DECIMALS);
     }
 }
 
@@ -161,6 +162,74 @@ mod state_tests {
     use cosmwasm_std::testing::{ mock_dependencies };
 
     use super::{ * };
+
+    #[test]
+    fn test_accrue(){
+        let mut state = TokenState::default();
+        state.last_accrue_block = Uint64::from(100u64);
+        state.total_supply = Uint128::from(100u128);
+
+        let current_block = Uint64::from(101u64);
+
+        // no blocks since last accrue
+        assert_eq!(Uint128::zero(), state.pending_reward_per_token(current_block));
+
+        // not zero response
+        let reward_rate = Uint128::from(100u128);
+        let distribution_period = Uint64::from(10u64);
+
+        state.reward_rate_stored = reward_rate.clone();
+        state.distribution_period = distribution_period.clone();
+
+        let expected = (reward_rate * distribution_period) / Uint128::from(100u128);
+        assert_eq!(expected, state.pending_reward_per_token(current_block));
+        todo!()
+    }
+
+    #[test]
+    fn test_pending_reward_per_token() {
+        let mut state = TokenState::default();
+        state.last_income_block = Uint64::from(100u64);
+        state.distribution_period = Uint64::from(10u64);
+
+        let current_block = Uint64::from(101u64);
+
+        // zero supply
+        assert_eq!(Uint128::zero(), state.pending_reward_per_token(current_block));
+
+        // no blocks since last accrue
+        let total_supply = Uint128::from(100u128);
+        let last_accrue_block = Uint64::from(100u64);
+
+        state.last_accrue_block = last_accrue_block.clone();
+        state.total_supply = total_supply.clone();
+
+        assert_eq!(Uint128::zero(), state.pending_reward_per_token(last_accrue_block.clone()));
+
+        // not zero response
+        let reward_rate = Uint128::from(100u128);
+        state.reward_rate_stored = reward_rate.clone();
+
+        assert_eq!(Uint128::from(5u128), state.pending_reward_per_token(Uint64::from(105u64))); // (5 blocks elapsed * 100)/100
+    }
+
+    #[test]
+    fn test_reward_rate() {
+        let mut state = TokenState::default();
+
+        let reward_rate_stored = Uint128::from(10u128);
+        let distribution_period = Uint64::from(10u64);
+
+        state.reward_rate_stored = reward_rate_stored.clone();
+        state.distribution_period = distribution_period.clone();
+        state.last_income_block = Uint64::from(100u64);
+
+        // Distribution period is over
+        assert_eq!(Uint128::zero(), state.reward_rate(Uint64::from(110u64)));
+
+        // Distribution period is not over
+        assert_eq!(reward_rate_stored, state.reward_rate(Uint64::from(101u64)));
+    }
 
     #[test]
     fn test_update_reward_rate() {

@@ -164,26 +164,73 @@ mod state_tests {
     use super::{ * };
 
     #[test]
-    fn test_accrue(){
+    fn test_set_distribution_period() {
+        let mut binding = mock_dependencies();
+        let deps = binding.as_mut();
+
         let mut state = TokenState::default();
         state.last_accrue_block = Uint64::from(100u64);
+        state.last_income_block = Uint64::from(100u64);
         state.total_supply = Uint128::from(100u128);
+        state.reward_rate_stored = Uint128::from(10u128);
+        state.reward_per_token = Uint128::from(10u128);
+        state.distribution_period = Uint64::from(200u64);
 
-        let current_block = Uint64::from(101u64);
+        let current_block = Uint64::from(200u64);
 
-        // no blocks since last accrue
-        assert_eq!(Uint128::zero(), state.pending_reward_per_token(current_block));
+        // Test zero distribution period
+        let err = state
+            .set_distribution_period(deps.storage, current_block, Uint64::zero())
+            .unwrap_err();
+        assert_eq!(err, ContractError::ZeroDistributionPeriod {});
 
-        // not zero response
-        let reward_rate = Uint128::from(100u128);
-        let distribution_period = Uint64::from(10u64);
+        // Test normal distribution period
+        let new_distribution_period = Uint64::from(200u64);
 
-        state.reward_rate_stored = reward_rate.clone();
-        state.distribution_period = distribution_period.clone();
+        let mut binding_2 = mock_dependencies();
+        let deps_2 = binding_2.as_mut();
+        let mut expected_state = state.clone();
 
-        let expected = (reward_rate * distribution_period) / Uint128::from(100u128);
-        assert_eq!(expected, state.pending_reward_per_token(current_block));
-        todo!()
+        expected_state.accrue(deps_2.storage, current_block).unwrap();
+        expected_state
+            .update_reward_rate(deps_2.storage, UpdateRewardRateInput {
+                add_amount: Uint128::zero(),
+                new_distribution_period: new_distribution_period.clone(),
+                current_block: current_block.clone(),
+            })
+            .unwrap();
+
+        let _resp = state
+            .set_distribution_period(deps.storage, current_block, new_distribution_period)
+            .unwrap();
+
+        assert_eq!(expected_state,TOKEN_STATE.load(deps.storage).unwrap());
+        // TODO: test events
+    }
+
+    #[test]
+    fn test_accrue() {
+        let mut binding = mock_dependencies();
+        let deps = binding.as_mut();
+
+        let mut state = TokenState::default();
+        state.last_accrue_block = Uint64::from(100u64);
+        state.last_income_block = Uint64::from(100u64);
+        state.total_supply = Uint128::from(100u128);
+        state.reward_rate_stored = Uint128::from(10u128);
+        state.reward_per_token = Uint128::from(10u128);
+        state.distribution_period = Uint64::from(200u64);
+
+        let current_block = Uint64::from(200u64);
+
+        let pending_reward_per_token = state.pending_reward_per_token(current_block);
+        let mut expected_state = state.clone();
+        expected_state.reward_per_token += pending_reward_per_token;
+        expected_state.last_accrue_block = current_block.clone();
+
+        state.accrue(deps.storage, current_block.clone()).unwrap();
+
+        assert_eq!(expected_state, TOKEN_STATE.load(deps.storage).unwrap());
     }
 
     #[test]

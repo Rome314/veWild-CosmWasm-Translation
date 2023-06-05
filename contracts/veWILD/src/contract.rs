@@ -190,19 +190,27 @@ pub(crate) mod utils {
             return Result::Err(ContractError::ClaimFirst {});
         }
 
-        let set_amount = user_state.balance - amount;
+        // TODO: check if this is correct way for internal transactions
+        let mut cw_info = info.clone();
+        cw_info.sender = env.contract.address.clone();
+        
         let mut cw20_result: Result<Response, cw20_base::ContractError> = Ok(Response::default());
         if amount > user_state.balance {
             cw20_result = execute_mint(
                 deps.branch(),
                 env.to_owned(),
-                info.to_owned(),
+                cw_info,
                 account.to_string(),
-                set_amount
+                amount - user_state.balance
             );
         } else if amount < user_state.balance {
             // TODO: ensure that amount is burnt from user
-            cw20_result = execute_burn(deps.branch(), env.to_owned(), info.to_owned(), set_amount);
+            cw20_result = execute_burn(
+                deps.branch(),
+                env.to_owned(),
+                cw_info,
+                user_state.balance - amount
+            );
         }
 
         let total_supply = query_token_info(deps.as_ref()).unwrap().total_supply;

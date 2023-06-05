@@ -145,6 +145,16 @@ pub struct UserState {
 }
 
 impl UserState {
+    pub fn default() -> Self {
+        Self {
+            balance: Uint128::zero(),
+            locked_balance: Uint128::zero(),
+            locked_until: Uint64::zero(),
+            reward_snapshot: Uint128::zero(),
+            withdraw_at: Uint64::zero(),
+        }
+    }
+
     pub fn pending_reward(
         &self,
         reward_per_token: Uint128,

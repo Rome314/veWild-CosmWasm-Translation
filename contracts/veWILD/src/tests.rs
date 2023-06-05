@@ -1,27 +1,156 @@
+use std::f32::consts::E;
+
+use crate::consts::TOKEN_DECIMALS;
+use crate::contract::*;
+use crate::msg::*;
+use crate::state::TOKEN_STATE;
+use crate::state::TokenState;
+use cosmwasm_std::ContractResult;
+use cosmwasm_std::DepsMut;
+use cosmwasm_std::Env;
+use cosmwasm_std::MessageInfo;
+use cosmwasm_std::QuerierResult;
+use cosmwasm_std::StdError;
+use cosmwasm_std::SystemError;
+use cosmwasm_std::SystemResult;
+use cosmwasm_std::Uint128;
+use cosmwasm_std::WasmQuery;
+use cosmwasm_std::from_binary;
+use cosmwasm_std::testing::MockQuerier;
+use cosmwasm_std::to_binary;
+use cosmwasm_std::{ Addr, Uint64 };
+use cw20::BalanceResponse;
+use cw20::Cw20QueryMsg;
+use cw20_base::state::MinterData;
+use cw20_base::state::TOKEN_INFO;
+use cw20_base::state::TokenInfo;
+// use cw_multi_test::{ App, ContractWrapper, Executor };
+use cosmwasm_std::testing::{ mock_dependencies, mock_env, mock_info };
+
+const MOCK_LOCKED_TOKEN: &str = "cw20";
+
+fn mock_instantiate(deps: DepsMut, env: Env, info: MessageInfo) {
+    instantiate(deps, env, info, InstantiateMsg {
+        locked_token: Addr::unchecked(MOCK_LOCKED_TOKEN),
+        distribution_period: Uint64::from(1000 as u16),
+    }).unwrap();
+}
+
+fn cw20_mock_querier(contract_balance: Uint128) -> Box<dyn Fn(&WasmQuery) -> QuerierResult> {
+    let expected_address = String::from(MOCK_LOCKED_TOKEN);
+    Box::new(move |request| -> QuerierResult {
+        match request {
+            WasmQuery::Smart { contract_addr, msg } => {
+                match contract_addr {
+                    _ if contract_addr.eq(&expected_address) => {
+                        let balance_msg_res = from_binary(&msg);
+                        match balance_msg_res {
+                            Ok(Cw20QueryMsg::Balance { address }) => {
+                                SystemResult::Ok(
+                                    ContractResult::Ok(
+                                        to_binary(
+                                            &(BalanceResponse {
+                                                balance: contract_balance.to_owned(),
+                                            })
+                                        ).unwrap()
+                                    )
+                                )
+                            }
+                            Err(_) => {
+                                SystemResult::Err(SystemError::InvalidRequest {
+                                    error: "Invalid query message".into(),
+                                    request: msg.to_owned(),
+                                })
+                            }
+                            _ =>
+                                SystemResult::Err(SystemError::InvalidRequest {
+                                    error: "Invalid query message".into(),
+                                    request: msg.to_owned(),
+                                }),
+                        }
+                    }
+                    _ =>
+                        SystemResult::Err(SystemError::InvalidRequest {
+                            error: "Invalid query message".into(),
+                            request: msg.to_owned(),
+                        }),
+                }
+            }
+            WasmQuery::Raw { contract_addr, key } =>
+                SystemResult::Err(SystemError::InvalidRequest {
+                    error: "Invalid query message".into(),
+                    request: key.to_owned(),
+                }),
+            WasmQuery::ContractInfo { contract_addr } =>
+                SystemResult::Err(SystemError::InvalidRequest {
+                    error: "Invalid query message".into(),
+                    request: to_binary(contract_addr).unwrap(),
+                }),
+            _ =>
+                SystemResult::Err(SystemError::InvalidRequest {
+                    error: "Invalid query message".into(),
+                    request: Default::default(),
+                }),
+        }
+    })
+}
+
+#[cfg(test)]
+mod utils_tests {
+    use std::{ rc::Rc, cell::RefCell };
+
+    use cosmwasm_std::StdResult;
+    use crate::{ contract::utils::{ * }, error::ContractError };
+
+    use super::*;
+    #[test]
+    fn test_check_reserves() {
+        let mut deps_binding = mock_dependencies();
+        let mut env = mock_env();
+        let info = mock_info("creator", &[]);
+
+        mock_instantiate(deps_binding.as_mut(), env.to_owned(), info.to_owned());
+        // 1. enough balance
+
+        deps_binding.querier.update_wasm(cw20_mock_querier(Uint128::from(1000 as u16)));
+
+        let deps = deps_binding.as_mut();
+        TOKEN_STATE.update(
+            deps.storage,
+            |mut state| -> StdResult<_> {
+                state.total_locked = Uint128::from(1000 as u16);
+                Ok(state)
+            }
+        ).unwrap();
+
+        env.block.height += 500;
+        let _res = check_reserves(deps.as_ref(), &env.to_owned()).unwrap();
+
+        // 2. not enough balance
+        let mut deps_binding = mock_dependencies();
+        let mut env = mock_env();
+        let info = mock_info("creator", &[]);
+
+        mock_instantiate(deps_binding.as_mut(), env.to_owned(), info.to_owned());
+        deps_binding.querier.update_wasm(cw20_mock_querier(Uint128::from(100 as u16)));
+
+        let deps = deps_binding.as_mut();
+        TOKEN_STATE.update(
+            deps.storage,
+            |mut state| -> StdResult<_> {
+                state.total_locked = Uint128::from(1000 as u16);
+                Ok(state)
+            }
+        ).unwrap();
+
+        let err = check_reserves(deps.as_ref(), &env.to_owned()).unwrap_err();
+        assert_eq!(err, ContractError::InsufficientReserves {});
+    }
+}
+
 #[cfg(test)]
 mod contract_tests {
-    use crate::consts::TOKEN_DECIMALS;
-    use crate::contract::*;
-    use crate::msg::*;
-    use crate::state::TOKEN_STATE;
-    use crate::state::TokenState;
-    use cosmwasm_std::DepsMut;
-    use cosmwasm_std::Env;
-    use cosmwasm_std::MessageInfo;
-    use cosmwasm_std::Uint128;
-    use cosmwasm_std::{ Addr, Uint64 };
-    use cw20_base::state::MinterData;
-    use cw20_base::state::TOKEN_INFO;
-    use cw20_base::state::TokenInfo;
-    use cw_multi_test::{ App, ContractWrapper, Executor };
-    use cosmwasm_std::testing::{ mock_dependencies, mock_env, mock_info };
-
-    fn mock_instantiate(deps: DepsMut, env: Env, info: MessageInfo) {
-        instantiate(deps, env, info, InstantiateMsg {
-            locked_token: Addr::unchecked("cw20"),
-            distribution_period: Uint64::from(1000 as u16),
-        }).unwrap();
-    }
+    use super::*;
 
     #[test]
     fn proper_instantiation() {

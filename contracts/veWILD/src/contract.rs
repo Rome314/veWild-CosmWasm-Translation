@@ -71,7 +71,7 @@ pub fn instantiate(
 }
 
 //  Internal functions
-mod utils {
+pub(crate) mod utils {
     use cosmwasm_std::WasmMsg;
 
     use super::*;

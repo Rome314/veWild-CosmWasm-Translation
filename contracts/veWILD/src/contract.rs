@@ -493,9 +493,9 @@ mod exec {
     }
 
     pub fn execute_set_distribution_period(
-        mut deps: DepsMut,
+        deps: DepsMut,
         env: Env,
-        info: MessageInfo,
+        _info: MessageInfo,
         new_distribution_period: Uint64
     ) -> Result<Response, ContractError> {
         let mut token_state = TOKEN_STATE.load(deps.storage)?;

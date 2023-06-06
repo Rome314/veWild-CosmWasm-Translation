@@ -80,7 +80,7 @@ impl TokenState {
         storage: &mut dyn Storage,
         current_block: Uint64
     ) -> Result<(), ContractError> {
-        self.reward_per_token += self.pending_reward_per_token(current_block);
+        self.reward_per_token += self.pending_reward_per_token(current_block.clone());
         self.last_accrue_block = current_block;
 
         TOKEN_STATE.update(
@@ -222,6 +222,7 @@ mod state_tests {
         state.reward_rate_stored = Uint128::from(10u128);
         state.reward_per_token = Uint128::from(10u128);
         state.distribution_period = Uint64::from(200u64);
+        TOKEN_STATE.save(deps.storage, &state).unwrap();
 
         let current_block = Uint64::from(200u64);
 
@@ -237,6 +238,8 @@ mod state_tests {
         let mut binding_2 = mock_dependencies();
         let deps_2 = binding_2.as_mut();
         let mut expected_state = state.clone();
+
+        TOKEN_STATE.save(deps_2.storage, &expected_state).unwrap();
 
         expected_state.accrue(deps_2.storage, current_block).unwrap();
         expected_state
@@ -267,6 +270,8 @@ mod state_tests {
         state.reward_rate_stored = Uint128::from(10u128);
         state.reward_per_token = Uint128::from(10u128);
         state.distribution_period = Uint64::from(200u64);
+
+        TOKEN_STATE.save(deps.storage, &state).unwrap();
 
         let current_block = Uint64::from(200u64);
 
@@ -369,7 +374,7 @@ mod state_tests {
             current_block: current_block.clone(),
         };
         // accrue is happened
-        state.last_accrue_block = input.current_block;
+        state.accrue(deps.storage, input.current_block);
 
         let unvested_income = state.update_reward_rate(deps.storage, input).unwrap();
 
@@ -395,7 +400,7 @@ mod state_tests {
             current_block: current_block.clone(),
         };
         // accrue is happened
-        state.last_accrue_block = input.current_block;
+        state.accrue(deps.storage, input.current_block).unwrap();
 
         let unvested_income = state.update_reward_rate(deps.storage, input).unwrap();
 

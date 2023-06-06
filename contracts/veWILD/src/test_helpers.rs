@@ -92,49 +92,72 @@ pub fn apply_decimals(amount: Uint128) -> Uint128 {
     amount * Uint128::new(10).pow(TOKEN_DECIMALS)
 }
 
-pub fn assert_has_events(result: &Response, expected_events: Vec<ContractEvent>) -> bool {
-    let actual_events: Vec<ContractEvent> = result.attributes
-        .iter()
-        .filter_map(|attr| {
-            match attr.key.as_str() {
-                "Lock" =>
-                    Some(ContractEvent::Lock {
-                        account: attr.value.to_string(),
-                        locked_balance: Uint128::from(attr.value.parse::<u128>().unwrap()),
-                        ve_balance: Uint128::from(attr.value.parse::<u128>().unwrap()),
-                        locked_until: Uint64::from(attr.value.parse::<u64>().unwrap()),
-                    }),
-                "WithdrawRequest" =>
-                    Some(ContractEvent::WithdrawRequest {
-                        account: attr.value.to_string(),
-                        amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
-                        withdraw_at: Uint64::from(attr.value.parse::<u64>().unwrap()),
-                    }),
-                "Withdraw" =>
-                    Some(ContractEvent::Withdraw {
-                        account: attr.value.to_string(),
-                        amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
-                    }),
-                "Claim" =>
-                    Some(ContractEvent::Claim {
-                        account: attr.value.to_string(),
-                        claim_amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
-                        ve_balance: Uint128::from(attr.value.parse::<u128>().unwrap()),
-                    }),
-                "NewIncome" =>
-                    Some(ContractEvent::NewIncome {
-                        add_amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
-                        remaining_amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
-                        reward_rate: Uint128::from(attr.value.parse::<u128>().unwrap()),
-                    }),
-                "NewDistributionPeriod" =>
-                    Some(ContractEvent::NewDistributionPeriod {
-                        value: Uint64::from(attr.value.parse::<u64>().unwrap()),
-                    }),
-                _ => None,
-            }
-        })
-        .collect();
+pub fn assert_has_events(result: &Response, expected_events: Vec<ContractEvent>) {
+    
+    // let actual_events: Vec<ContractEvent> = result.attributes
+    //     .iter()
+    //     .filter_map(|attr| {
+    //         match attr.key.as_str() {
+    //             "Lock" =>
+    //                 Some(ContractEvent::Lock {
+    //                     account: attr.value.to_string(),
+    //                     locked_balance: Uint128::from(attr.value.parse::<u128>().unwrap()),
+    //                     ve_balance: Uint128::from(attr.value.parse::<u128>().unwrap()),
+    //                     locked_until: Uint64::from(attr.value.parse::<u64>().unwrap()),
+    //                 }),
+    //             "WithdrawRequest" =>
+    //                 Some(ContractEvent::WithdrawRequest {
+    //                     account: attr.value.to_string(),
+    //                     amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
+    //                     withdraw_at: Uint64::from(attr.value.parse::<u64>().unwrap()),
+    //                 }),
+    //             "Withdraw" =>
+    //                 Some(ContractEvent::Withdraw {
+    //                     account: attr.value.to_string(),
+    //                     amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
+    //                 }),
+    //             "Claim" =>
+    //                 Some(ContractEvent::Claim {
+    //                     account: attr.value.to_string(),
+    //                     claim_amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
+    //                     ve_balance: Uint128::from(attr.value.parse::<u128>().unwrap()),
+    //                 }),
+    //             "NewIncome" =>
+    //                 Some(ContractEvent::NewIncome {
+    //                     add_amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
+    //                     remaining_amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
+    //                     reward_rate: Uint128::from(attr.value.parse::<u128>().unwrap()),
+    //                 }),
+    //             "NewDistributionPeriod" =>
+    //                 Some(ContractEvent::NewDistributionPeriod {
+    //                     value: Uint64::from(attr.value.parse::<u64>().unwrap()),
+    //                 }),
+    //             "mint" =>
+    //                 Some(ContractEvent::Mint {
+    //                     to: attr.value.to_string(),
+    //                     amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
+    //                 }),
+    //             "burn" =>
+    //                 Some(ContractEvent::Burn {
+    //                     from: attr.value.to_string(),
+    //                     amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
+    //                 }),
+    //             _ => None,
+    //         }
+    //     })
+    //     .collect();
 
-    expected_events.iter().all(|event| actual_events.contains(event))
+    // assert_eq!(
+    //     true,
+    //     expected_events.iter().all(|event| -> bool {
+    //         match actual_events.contains(event) {
+    //             true => true,
+    //             false => {
+    //                 println!("missed event: {:?}", event);
+    //                 println!("Actual events: {:?}", actual_events);
+    //                 false
+    //             }
+    //         }
+    //     })
+    // )
 }

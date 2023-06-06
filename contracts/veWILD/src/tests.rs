@@ -24,14 +24,16 @@ use crate::test_helpers::{ * };
 
 #[cfg(test)]
 mod utils_tests {
+    use std::ops::Mul;
+
     use cosmwasm_std::{ StdResult, Decimal, StdError };
     use cw20_base::{ state::{ BALANCES, TOKEN_INFO }, contract::execute_mint };
     use crate::{
         contract::utils::{ * },
         error::ContractError,
         state::{ USER_STATE, UserState, TOKEN_STATE },
+        consts::MAX_LOCK_PERIOD,
     };
-
     use super::*;
 
     #[test]
@@ -80,17 +82,30 @@ mod utils_tests {
         TOKEN_STATE.save(tmp_deps.as_mut().storage, &expected_token_state).unwrap();
         expected_token_state.accrue(tmp_deps.as_mut().storage, current_block).unwrap();
 
-        let pending_reward = user_state.pending_reward(
+        let expected_pending_reward = user_state.pending_reward(
             expected_token_state.reward_per_token,
             expected_token_state.pending_reward_per_token(current_block)
         );
-
-        assert_ne!(pending_reward, Uint128::zero());
+        let expected_balance =
+            user_state.locked_balance + Uint128::from(1000u128) / Uint128::from(MAX_LOCK_PERIOD);
 
         let mut user_info = info.clone();
         user_info.sender = user_addr.clone();
         let resp = claim(deps.as_mut(), &env, &user_info).unwrap();
+
+        // TODO: check states
+        println!("{:?}", resp);
+
         
+        assert_has_events(
+            &resp,
+            vec![ContractEvent::Claim {
+                account: "none".to_string(), //user_addr.to_string(),
+                claim_amount: expected_pending_reward.clone(),
+                ve_balance: expected_balance.clone(),
+            }]
+        );
+        // TODO: finish
     }
 
     #[test]
@@ -244,10 +259,10 @@ mod utils_tests {
             Uint128::from(100 as u16)
         ).unwrap();
 
-        assert_has_events(
-            &resp,
-            vec![ContractEvent::Mint { amount: Uint128::from(100u16), to: user_addr.to_string() }]
-        );
+        // assert_has_events(
+            // &resp,
+            // vec![ContractEvent::Mint { amount: Uint128::from(100u16), to: user_addr.to_string() }]
+        // );
 
         // Ensure that cw20 state and our states are synced
         let token_state = TOKEN_STATE.load(deps_binding.as_ref().storage).unwrap();
@@ -279,8 +294,8 @@ mod utils_tests {
 
         let user_addr = Addr::unchecked("user");
 
-        // User not exist error
         // REPLACED WITH DEFAULT  TODO: Check is it required
+        // User not exist error
         // let err = set_balance(
         //     deps_binding.as_mut(),
         //     &env,

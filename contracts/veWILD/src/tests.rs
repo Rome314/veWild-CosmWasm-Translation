@@ -38,6 +38,52 @@ mod utils_tests {
     use super::*;
 
     #[test]
+    fn test_update_lock() {
+        let mut deps_binding = mock_dependencies();
+        let mut env = mock_env();
+        let info = mock_info("creator", &[]);
+
+        mock_instantiate(deps_binding.as_mut(), env.to_owned(), info.to_owned());
+
+        let user_addr = Addr::unchecked("user");
+        let mut user_state = UserState::default();
+        user_state.locked_balance = Uint128::from(1000u16);
+        USER_STATE.save(deps_binding.as_mut().storage, &user_addr, &user_state).unwrap();
+
+        // 1. Set non-zero balance
+
+        let new_locked_until = Uint64::from(env.block.time.plus_seconds(300000).seconds());
+
+        let resp = update_lock(
+            deps_binding.as_mut(),
+            &env,
+            &info,
+            &user_addr,
+            new_locked_until
+        ).unwrap();
+
+        assert_eq!(
+            BALANCES.load(deps_binding.as_mut().storage, &user_addr).unwrap(),
+            Uint128::from(2u8)
+        ); //(1000 * 300000)/126144000 = 2
+
+        // 2. Set zero balance
+
+        let resp = update_lock(
+            deps_binding.as_mut(),
+            &env,
+            &info,
+            &user_addr,
+            Uint64::from(env.block.time.seconds().to_owned())
+        ).unwrap();
+
+        assert_eq!(
+            BALANCES.load(deps_binding.as_mut().storage, &user_addr).unwrap(),
+            Uint128::zero()
+        ); //(1000 * 0)/126144000 = 2
+    }
+
+    #[test]
     fn test_set_balance_burn() {
         let mut deps_binding = mock_dependencies();
         let env = mock_env();

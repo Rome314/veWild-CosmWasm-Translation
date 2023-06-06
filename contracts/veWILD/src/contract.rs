@@ -156,10 +156,10 @@ pub(crate) mod utils {
         account: &Addr,
         new_locked_until: Uint64
     ) -> Result<Response, ContractError> {
-        let current_block = Uint64::from(env.block.height);
+        let current_ts = Uint64::from(env.block.time.seconds());
 
-        let lock_seconds = if new_locked_until > current_block {
-            new_locked_until - current_block
+        let lock_seconds = if new_locked_until > current_ts {
+            new_locked_until - current_ts
         } else {
             Uint64::zero()
         };

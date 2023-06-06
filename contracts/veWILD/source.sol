@@ -248,7 +248,7 @@ contract VeToken is SafeOwnable, ReentrancyGuard {
             ? _newLockedUntil - block.timestamp
             : 0;
         uint newBalance = (lockedBalanceOf[_account] * lockSeconds) /
-            MAX_LOCK_PERIOD;
+            MAX_LOCK_PERIOD; //add decimals? 
         lockedUntil[msg.sender] = _newLockedUntil;
         _setBalance(_account, newBalance);
     }

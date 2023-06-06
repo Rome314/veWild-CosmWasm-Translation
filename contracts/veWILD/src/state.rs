@@ -83,7 +83,14 @@ impl TokenState {
         self.reward_per_token += self.pending_reward_per_token(current_block);
         self.last_accrue_block = current_block;
 
-        TOKEN_STATE.save(storage, self)?;
+        TOKEN_STATE.update(
+            storage,
+            |mut state| -> Result<TokenState, ContractError> {
+                state.reward_per_token = self.reward_per_token;
+                state.last_accrue_block = self.last_accrue_block;
+                Ok(state)
+            }
+        )?;
         Ok(())
     }
 
@@ -92,8 +99,12 @@ impl TokenState {
             return Uint128::zero();
         }
 
-        let blocks_elapsed = Uint128::from(current_block - self.last_accrue_block);
-        return (blocks_elapsed * self.reward_rate(current_block)) / self.total_supply;
+        return (
+            (Uint128::from(current_block - self.last_accrue_block) *
+                self.reward_rate(current_block) *
+                Uint128::from(10u8).pow(TOKEN_DECIMALS as u32)) /
+            self.total_supply
+        );
     }
 
     pub fn update_reward_rate(
@@ -120,7 +131,15 @@ impl TokenState {
         self.distribution_period = input.new_distribution_period;
         self.last_income_block = input.current_block;
 
-        TOKEN_STATE.save(storage, &self)?;
+        TOKEN_STATE.update(
+            storage,
+            |mut state| -> Result<TokenState, ContractError> {
+                state.reward_rate_stored = self.reward_rate_stored;
+                state.distribution_period = self.distribution_period;
+                state.last_income_block = self.last_income_block;
+                Ok(state)
+            }
+        )?;
         Ok(unvested_income)
     }
     // Reward only while distribution period since last income
@@ -136,6 +155,7 @@ impl TokenState {
 }
 
 #[cw_serde]
+#[derive(Default)]
 pub struct UserState {
     pub balance: Uint128, // veBalance
     pub locked_balance: Uint128, // locked
@@ -163,7 +183,9 @@ impl UserState {
         let pending_reward_per_token = reward_per_token + pending_reward_per_token;
         let reward_per_token_delta = pending_reward_per_token - self.reward_snapshot;
 
-        return (reward_per_token_delta * self.balance) / Uint128::from(TOKEN_DECIMALS);
+        return (
+            (reward_per_token_delta * self.balance) / Uint128::from(10u8).pow(TOKEN_DECIMALS as u32)
+        );
     }
 }
 
@@ -172,6 +194,21 @@ mod state_tests {
     use cosmwasm_std::testing::{ mock_dependencies };
 
     use super::{ * };
+
+    #[test]
+    fn test_user_pending_reward() {
+        let mut user_state = UserState::default();
+        user_state.balance = Uint128::from(100u128);
+        user_state.reward_snapshot = Uint128::zero();
+
+        assert_eq!(
+            user_state.pending_reward(
+                Uint128::from(1000000000000000000u128),
+                Uint128::from(100000000u128)
+            ),
+            Uint128::from(100u128)
+        );
+    }
 
     #[test]
     fn test_set_distribution_period() {
@@ -214,7 +251,7 @@ mod state_tests {
             .set_distribution_period(deps.storage, current_block, new_distribution_period)
             .unwrap();
 
-        assert_eq!(expected_state,TOKEN_STATE.load(deps.storage).unwrap());
+        assert_eq!(expected_state, TOKEN_STATE.load(deps.storage).unwrap());
         // TODO: test events
     }
 
@@ -267,7 +304,10 @@ mod state_tests {
         let reward_rate = Uint128::from(100u128);
         state.reward_rate_stored = reward_rate.clone();
 
-        assert_eq!(Uint128::from(5u128), state.pending_reward_per_token(Uint64::from(105u64))); // (5 blocks elapsed * 100)/100
+        assert_eq!(
+            Uint128::from(5u128) * Uint128::from(10u8).pow(TOKEN_DECIMALS),
+            state.pending_reward_per_token(Uint64::from(105u64))
+        ); // (5 blocks elapsed * 100)/100
     }
 
     #[test]

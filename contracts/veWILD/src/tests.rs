@@ -1,43 +1,99 @@
-use std::f32::consts::E;
-
 use crate::consts::TOKEN_DECIMALS;
 use crate::contract::*;
 use crate::events::ContractEvent;
 use crate::msg::*;
-use crate::state::TOKEN_STATE;
-use crate::state::TokenState;
 use cosmwasm_std::ContractResult;
 use cosmwasm_std::DepsMut;
 use cosmwasm_std::Env;
 use cosmwasm_std::MessageInfo;
 use cosmwasm_std::QuerierResult;
 use cosmwasm_std::Response;
-use cosmwasm_std::StdError;
 use cosmwasm_std::SystemError;
 use cosmwasm_std::SystemResult;
 use cosmwasm_std::Uint128;
 use cosmwasm_std::WasmQuery;
 use cosmwasm_std::from_binary;
-use cosmwasm_std::testing::MockQuerier;
 use cosmwasm_std::to_binary;
 use cosmwasm_std::{ Addr, Uint64 };
 use cw20::BalanceResponse;
 use cw20::Cw20QueryMsg;
-use cw20_base::state::MinterData;
-use cw20_base::state::TOKEN_INFO;
-use cw20_base::state::TokenInfo;
 // use cw_multi_test::{ App, ContractWrapper, Executor };
 use cosmwasm_std::testing::{ mock_dependencies, mock_env, mock_info };
 
-const MOCK_LOCKED_TOKEN: &str = "cw20";
+use crate::test_helpers::{ * };
 
 #[cfg(test)]
 mod utils_tests {
-    use cosmwasm_std::StdResult;
-    use cw20_base::{ state::BALANCES, contract::execute_mint };
-    use crate::{ contract::utils::{ * }, error::ContractError, state::{ USER_STATE, UserState } };
+    use cosmwasm_std::{ StdResult, Decimal, StdError };
+    use cw20_base::{ state::{ BALANCES, TOKEN_INFO }, contract::execute_mint };
+    use crate::{
+        contract::utils::{ * },
+        error::ContractError,
+        state::{ USER_STATE, UserState, TOKEN_STATE },
+    };
 
     use super::*;
+
+    #[test]
+    fn test_claim() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("creator", &[]);
+
+        mock_instantiate(deps.as_mut(), env.to_owned(), info.to_owned());
+
+        let user_addr = Addr::unchecked("user");
+
+        set_balance(
+            deps.as_mut(),
+            &env,
+            &info,
+            &user_addr,
+            apply_decimals(Uint128::from(1000u16))
+        ).unwrap();
+
+        USER_STATE.update(
+            deps.as_mut().storage,
+            &user_addr,
+            |mut state| -> StdResult<_> {
+                let mut user = state.unwrap_or_default();
+                user.locked_balance = apply_decimals(Uint128::from(1000u16));
+                user.locked_until = Uint64::from(env.block.time.plus_seconds(1000).seconds());
+                Ok(user)
+            }
+        ).unwrap();
+
+        let user_state = USER_STATE.load(deps.as_mut().storage, &user_addr).unwrap();
+
+        let current_block = Uint64::from(env.block.height.clone());
+
+        TOKEN_STATE.update(
+            deps.as_mut().storage,
+            |mut state| -> StdResult<_> {
+                state.reward_per_token = Uint128::from(300000u64);
+                Ok(state)
+            }
+        ).unwrap();
+
+        let mut tmp_deps = mock_dependencies();
+        let mut expected_token_state = TOKEN_STATE.load(deps.as_mut().storage).unwrap();
+        TOKEN_STATE.save(tmp_deps.as_mut().storage, &expected_token_state).unwrap();
+        expected_token_state.accrue(tmp_deps.as_mut().storage, current_block).unwrap();
+
+        let pending_reward = user_state.pending_reward(
+            expected_token_state.reward_per_token,
+            expected_token_state.pending_reward_per_token(current_block)
+        );
+
+        assert_ne!(pending_reward, Uint128::zero());
+
+        let mut user_info = info.clone();
+        user_info.sender = user_addr.clone();
+        let resp = claim(deps.as_mut(), &env, &user_info).unwrap();
+
+        
+       
+    }
 
     #[test]
     fn test_update_lock() {
@@ -300,6 +356,10 @@ mod utils_tests {
 
 #[cfg(test)]
 mod contract_tests {
+    use cw20_base::state::{ TokenInfo, TOKEN_INFO, MinterData };
+
+    use crate::state::{ TOKEN_STATE, TokenState };
+
     use super::*;
 
     #[test]
@@ -331,7 +391,7 @@ mod contract_tests {
         let expected_token_info = TokenInfo {
             name: "veWILD".to_string(),
             symbol: "veWILD".to_string(),
-            decimals: TOKEN_DECIMALS,
+            decimals: TOKEN_DECIMALS as u8,
             total_supply: Uint128::zero(),
             mint: Some(MinterData {
                 minter: env.contract.address.clone(),
@@ -388,116 +448,4 @@ mod contract_tests {
             new_distribution_period.to_string()
         );
     }
-}
-fn mock_instantiate(deps: DepsMut, env: Env, info: MessageInfo) {
-    instantiate(deps, env, info, InstantiateMsg {
-        locked_token: Addr::unchecked(MOCK_LOCKED_TOKEN),
-        distribution_period: Uint64::from(1000 as u16),
-    }).unwrap();
-}
-
-fn cw20_mock_querier(contract_balance: Uint128) -> Box<dyn Fn(&WasmQuery) -> QuerierResult> {
-    let expected_address = String::from(MOCK_LOCKED_TOKEN);
-    Box::new(move |request| -> QuerierResult {
-        match request {
-            WasmQuery::Smart { contract_addr, msg } => {
-                match contract_addr {
-                    _ if contract_addr.eq(&expected_address) => {
-                        let balance_msg_res = from_binary(&msg);
-                        match balance_msg_res {
-                            Ok(Cw20QueryMsg::Balance { address }) => {
-                                SystemResult::Ok(
-                                    ContractResult::Ok(
-                                        to_binary(
-                                            &(BalanceResponse {
-                                                balance: contract_balance.to_owned(),
-                                            })
-                                        ).unwrap()
-                                    )
-                                )
-                            }
-                            Err(_) => {
-                                SystemResult::Err(SystemError::InvalidRequest {
-                                    error: "Invalid query message".into(),
-                                    request: msg.to_owned(),
-                                })
-                            }
-                            _ =>
-                                SystemResult::Err(SystemError::InvalidRequest {
-                                    error: "Invalid query message".into(),
-                                    request: msg.to_owned(),
-                                }),
-                        }
-                    }
-                    _ =>
-                        SystemResult::Err(SystemError::InvalidRequest {
-                            error: "Invalid query message".into(),
-                            request: msg.to_owned(),
-                        }),
-                }
-            }
-            WasmQuery::Raw { contract_addr, key } =>
-                SystemResult::Err(SystemError::InvalidRequest {
-                    error: "Invalid query message".into(),
-                    request: key.to_owned(),
-                }),
-            WasmQuery::ContractInfo { contract_addr } =>
-                SystemResult::Err(SystemError::InvalidRequest {
-                    error: "Invalid query message".into(),
-                    request: to_binary(contract_addr).unwrap(),
-                }),
-            _ =>
-                SystemResult::Err(SystemError::InvalidRequest {
-                    error: "Invalid query message".into(),
-                    request: Default::default(),
-                }),
-        }
-    })
-}
-
-fn assert_has_events(result: &Response, expected_events: Vec<ContractEvent>) -> bool {
-    let actual_events: Vec<ContractEvent> = result.attributes
-        .iter()
-        .filter_map(|attr| {
-            match attr.key.as_str() {
-                "Lock" =>
-                    Some(ContractEvent::Lock {
-                        account: attr.value.to_string(),
-                        locked_balance: Uint128::from(attr.value.parse::<u128>().unwrap()),
-                        ve_balance: Uint128::from(attr.value.parse::<u128>().unwrap()),
-                        locked_until: Uint64::from(attr.value.parse::<u64>().unwrap()),
-                    }),
-                "WithdrawRequest" =>
-                    Some(ContractEvent::WithdrawRequest {
-                        account: attr.value.to_string(),
-                        amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
-                        withdraw_at: Uint64::from(attr.value.parse::<u64>().unwrap()),
-                    }),
-                "Withdraw" =>
-                    Some(ContractEvent::Withdraw {
-                        account: attr.value.to_string(),
-                        amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
-                    }),
-                "Claim" =>
-                    Some(ContractEvent::Claim {
-                        account: attr.value.to_string(),
-                        claim_amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
-                        ve_balance: Uint128::from(attr.value.parse::<u128>().unwrap()),
-                    }),
-                "NewIncome" =>
-                    Some(ContractEvent::NewIncome {
-                        add_amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
-                        remaining_amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
-                        reward_rate: Uint128::from(attr.value.parse::<u128>().unwrap()),
-                    }),
-                "NewDistributionPeriod" =>
-                    Some(ContractEvent::NewDistributionPeriod {
-                        value: Uint64::from(attr.value.parse::<u64>().unwrap()),
-                    }),
-                _ => None,
-            }
-        })
-        .collect();
-
-    expected_events.iter().all(|event| actual_events.contains(event))
 }

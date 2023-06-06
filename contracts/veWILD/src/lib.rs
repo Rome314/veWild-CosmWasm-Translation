@@ -9,6 +9,7 @@ pub mod events;
 pub mod consts;
 pub mod cw20_client;
 pub mod tests;
+pub mod test_helpers;
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(

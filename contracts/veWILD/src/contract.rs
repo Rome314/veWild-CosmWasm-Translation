@@ -39,7 +39,7 @@ pub fn instantiate(
     let data = TokenInfo {
         name: "veWILD".to_string(),
         symbol: "veWILD".to_string(),
-        decimals: TOKEN_DECIMALS,
+        decimals: TOKEN_DECIMALS as u8,
         total_supply: Uint128::zero(),
         // set self as minter, so we can properly execute mint and burn
         mint: Some(MinterData {
@@ -183,7 +183,7 @@ pub(crate) mod utils {
         account: &Addr,
         amount: Uint128
     ) -> Result<Response, ContractError> {
-        let mut user_state: UserState = USER_STATE.load(deps.storage, account)?;
+        let mut user_state: UserState = USER_STATE.load(deps.storage, account).unwrap_or_default();
         let token_state = TOKEN_STATE.load(deps.storage)?;
 
         if !user_state.reward_snapshot.eq(&token_state.reward_per_token) {

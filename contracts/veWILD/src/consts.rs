@@ -3,4 +3,4 @@ pub const MIN_LOCK_PERIOD: u64 = 7 * SECONDS_PER_DAY;
 pub const MAX_LOCK_PERIOD: u64 = 1460 * SECONDS_PER_DAY;
 pub const WITHDRAW_DELAY: u64 = 1 * SECONDS_PER_DAY;
 
-pub const TOKEN_DECIMALS: u8 = 18;
+pub const TOKEN_DECIMALS: u32 = 18;

@@ -2,6 +2,7 @@ use std::f32::consts::E;
 
 use crate::consts::TOKEN_DECIMALS;
 use crate::contract::*;
+use crate::events::ContractEvent;
 use crate::msg::*;
 use crate::state::TOKEN_STATE;
 use crate::state::TokenState;
@@ -10,6 +11,7 @@ use cosmwasm_std::DepsMut;
 use cosmwasm_std::Env;
 use cosmwasm_std::MessageInfo;
 use cosmwasm_std::QuerierResult;
+use cosmwasm_std::Response;
 use cosmwasm_std::StdError;
 use cosmwasm_std::SystemError;
 use cosmwasm_std::SystemResult;
@@ -40,7 +42,7 @@ mod utils_tests {
     #[test]
     fn test_update_lock() {
         let mut deps_binding = mock_dependencies();
-        let mut env = mock_env();
+        let env = mock_env();
         let info = mock_info("creator", &[]);
 
         mock_instantiate(deps_binding.as_mut(), env.to_owned(), info.to_owned());
@@ -67,6 +69,11 @@ mod utils_tests {
             Uint128::from(2u8)
         ); //(1000 * 300000)/126144000 = 2
 
+        assert_has_events(
+            &resp,
+            vec![ContractEvent::Mint { amount: Uint128::from(2u8), to: user_addr.to_string() }]
+        );
+
         // 2. Set zero balance
 
         let resp = update_lock(
@@ -80,7 +87,12 @@ mod utils_tests {
         assert_eq!(
             BALANCES.load(deps_binding.as_mut().storage, &user_addr).unwrap(),
             Uint128::zero()
-        ); //(1000 * 0)/126144000 = 2
+        ); //(1000 * 0)/126144000 = 0
+
+        assert_has_events(
+            &resp,
+            vec![ContractEvent::Burn { amount: Uint128::from(2u8), from: user_addr.to_string() }]
+        );
     }
 
     #[test]
@@ -130,27 +142,9 @@ mod utils_tests {
             Uint128::from(30 as u16)
         ).unwrap();
 
-        // TODO: test events
-        assert_eq!(
-            resp.attributes
-                .iter()
-                .find(|attr| attr.key == "action")
-                .unwrap().value,
-            "burn"
-        );
-        assert_eq!(
-            resp.attributes
-                .iter()
-                .find(|attr| attr.key == "from")
-                .unwrap().value,
-            "user"
-        );
-        assert_eq!(
-            resp.attributes
-                .iter()
-                .find(|attr| attr.key == "amount")
-                .unwrap().value,
-            "70"
+        assert_has_events(
+            &resp,
+            vec![ContractEvent::Burn { amount: Uint128::from(70u16), from: user_addr.to_string() }]
         );
 
         // Ensure that cw20 state and our states are synced
@@ -168,7 +162,7 @@ mod utils_tests {
     fn test_set_balance_mint() {
         let mut deps_binding = mock_dependencies();
         let env = mock_env();
-        let mut info = mock_info("creator", &[]);
+        let info = mock_info("creator", &[]);
 
         mock_instantiate(deps_binding.as_mut(), env.to_owned(), info.to_owned());
 
@@ -196,27 +190,9 @@ mod utils_tests {
             Uint128::from(100 as u16)
         ).unwrap();
 
-        // TODO: test events
-        assert_eq!(
-            resp.attributes
-                .iter()
-                .find(|attr| attr.key == "action")
-                .unwrap().value,
-            "mint"
-        );
-        assert_eq!(
-            resp.attributes
-                .iter()
-                .find(|attr| attr.key == "to")
-                .unwrap().value,
-            "user"
-        );
-        assert_eq!(
-            resp.attributes
-                .iter()
-                .find(|attr| attr.key == "amount")
-                .unwrap().value,
-            "100"
+        assert_has_events(
+            &resp,
+            vec![ContractEvent::Mint { amount: Uint128::from(100u16), to: user_addr.to_string() }]
         );
 
         // Ensure that cw20 state and our states are synced
@@ -477,4 +453,51 @@ fn cw20_mock_querier(contract_balance: Uint128) -> Box<dyn Fn(&WasmQuery) -> Que
                 }),
         }
     })
+}
+
+fn assert_has_events(result: &Response, expected_events: Vec<ContractEvent>) -> bool {
+    let actual_events: Vec<ContractEvent> = result.attributes
+        .iter()
+        .filter_map(|attr| {
+            match attr.key.as_str() {
+                "Lock" =>
+                    Some(ContractEvent::Lock {
+                        account: attr.value.to_string(),
+                        locked_balance: Uint128::from(attr.value.parse::<u128>().unwrap()),
+                        ve_balance: Uint128::from(attr.value.parse::<u128>().unwrap()),
+                        locked_until: Uint64::from(attr.value.parse::<u64>().unwrap()),
+                    }),
+                "WithdrawRequest" =>
+                    Some(ContractEvent::WithdrawRequest {
+                        account: attr.value.to_string(),
+                        amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
+                        withdraw_at: Uint64::from(attr.value.parse::<u64>().unwrap()),
+                    }),
+                "Withdraw" =>
+                    Some(ContractEvent::Withdraw {
+                        account: attr.value.to_string(),
+                        amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
+                    }),
+                "Claim" =>
+                    Some(ContractEvent::Claim {
+                        account: attr.value.to_string(),
+                        claim_amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
+                        ve_balance: Uint128::from(attr.value.parse::<u128>().unwrap()),
+                    }),
+                "NewIncome" =>
+                    Some(ContractEvent::NewIncome {
+                        add_amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
+                        remaining_amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
+                        reward_rate: Uint128::from(attr.value.parse::<u128>().unwrap()),
+                    }),
+                "NewDistributionPeriod" =>
+                    Some(ContractEvent::NewDistributionPeriod {
+                        value: Uint64::from(attr.value.parse::<u64>().unwrap()),
+                    }),
+                _ => None,
+            }
+        })
+        .collect();
+
+    expected_events.iter().all(|event| actual_events.contains(event))
 }

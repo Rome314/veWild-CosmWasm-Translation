@@ -1,5 +1,6 @@
-use cosmwasm_std::{  Uint128, Uint64, Attribute };
+use cosmwasm_std::{ Uint128, Uint64, Attribute };
 
+#[derive(Clone, Debug, PartialEq)]
 pub enum ContractEvent {
     Lock {
         account: String,
@@ -28,6 +29,14 @@ pub enum ContractEvent {
     },
     NewDistributionPeriod {
         value: Uint64,
+    },
+    Burn {
+        amount: Uint128,
+        from: String,
+    },
+    Mint {
+        amount: Uint128,
+        to: String,
     },
 }
 
@@ -71,6 +80,18 @@ impl ContractEvent {
                 ],
             ContractEvent::NewDistributionPeriod { value } =>
                 vec![attr("action", "new_distribution_period"), attr("value", &value.to_string())],
+            ContractEvent::Burn { amount, from } =>
+                vec![
+                    attr("action", "burn"),
+                    attr("amount", &amount.to_string()),
+                    attr("from", from.as_str())
+                ],
+            ContractEvent::Mint { amount, to } =>
+                vec![
+                    attr("action", "mint"),
+                    attr("amount", &amount.to_string()),
+                    attr("to", to.as_str())
+                ],
         }
     }
 }

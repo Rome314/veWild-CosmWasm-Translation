@@ -192,23 +192,23 @@ pub(crate) mod utils {
 
         // TODO: check if this is correct way for internal transactions
         let mut cw_info = info.clone();
-        cw_info.sender = env.contract.address.clone();
-        
         let mut cw20_result: Result<Response, cw20_base::ContractError> = Ok(Response::default());
         if amount > user_state.balance {
+            cw_info.sender = env.contract.address.clone();
             cw20_result = execute_mint(
                 deps.branch(),
                 env.to_owned(),
-                cw_info,
+                cw_info, //contract info, because user can't mint by itself
                 account.to_string(),
                 amount - user_state.balance
             );
         } else if amount < user_state.balance {
+            cw_info.sender = account.clone();
             // TODO: ensure that amount is burnt from user
             cw20_result = execute_burn(
                 deps.branch(),
                 env.to_owned(),
-                cw_info,
+                cw_info, // original info, because we need burn from that user
                 user_state.balance - amount
             );
         }

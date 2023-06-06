@@ -70,6 +70,12 @@ mod utils_tests {
             "user".to_string(),
             Uint128::from(100u16)
         ).unwrap();
+
+        assert_eq!(
+            BALANCES.load(deps_binding.as_ref().storage, &user_addr).unwrap(),
+            Uint128::from(100u16)
+        );
+
         let resp = set_balance(
             deps_binding.as_mut(),
             &env,
@@ -89,7 +95,7 @@ mod utils_tests {
         assert_eq!(
             resp.attributes
                 .iter()
-                .find(|attr| attr.key == "to")
+                .find(|attr| attr.key == "from")
                 .unwrap().value,
             "user"
         );

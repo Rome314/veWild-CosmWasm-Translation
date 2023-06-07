@@ -110,16 +110,13 @@ pub(crate) mod utils {
 
         let mut user_state = USER_STATE.load(deps.storage, &info.sender)?;
 
-        let pending_reward = user_state.pending_reward(
-            token_state.reward_per_token,
-            token_state.pending_reward_per_token(current_block)
-        );
+        let pending_reward = user_state.pending_reward(token_state.reward_per_token.clone());
 
-        let deps_ref = deps.as_ref();
-        let locked_token_client = token_state.locked_token_client(&deps_ref);
         let mut messages: Vec<WasmMsg> = vec![];
         if !pending_reward.is_zero() {
-            let msg = locked_token_client.transfer(info.sender.to_owned(), pending_reward)?;
+            let msg = token_state
+                .locked_token_client(&deps.as_ref())
+                .transfer(info.sender.to_owned(), pending_reward)?;
             messages.push(msg.into());
         }
 
@@ -159,16 +156,16 @@ pub(crate) mod utils {
         let current_ts = Uint64::from(env.block.time.seconds());
 
         let lock_seconds = if new_locked_until > current_ts {
-            new_locked_until - current_ts
+            Uint128::from(new_locked_until - current_ts)
         } else {
-            Uint64::zero()
+            Uint128::zero()
         };
 
         let mut user_state = USER_STATE.load(deps.storage, &account)?;
 
         let new_balance =
-            (user_state.locked_balance * Uint128::from(lock_seconds)) /
-            Uint128::from(MAX_LOCK_PERIOD);
+            (user_state.locked_balance * lock_seconds) / Uint128::from(MAX_LOCK_PERIOD);
+        
         user_state.locked_until = new_locked_until;
 
         USER_STATE.save(deps.storage, &account, &user_state)?;

@@ -51,6 +51,7 @@ impl TokenState {
         cw20_client::CW20Client::new(deps, self.locked_token.clone())
     }
 
+    /// accrue + update_reward_rate(with 0 add_amount)
     pub fn set_distribution_period(
         &mut self,
         storage: &mut dyn Storage,
@@ -75,6 +76,8 @@ impl TokenState {
         Ok(resp)
     }
 
+    /// state.reward_per_token += [pending_reward_per_token]
+    /// state.last_accrue_block = current_block
     pub fn accrue(
         &mut self,
         storage: &mut dyn Storage,
@@ -94,19 +97,24 @@ impl TokenState {
         Ok(())
     }
 
+    /// reward_rate_stored(or 0) * blocks_since_last_accrue / total_supply
     pub fn pending_reward_per_token(&self, current_block: Uint64) -> Uint128 {
         if self.total_supply.is_zero() {
             return Uint128::zero();
         }
 
-        return (
-            (Uint128::from(current_block - self.last_accrue_block) *
-                self.reward_rate(current_block) *
-                Uint128::from(10u8).pow(TOKEN_DECIMALS as u32)) /
-            self.total_supply
-        );
+        let blocks_since_last_accrue = Uint128::from(current_block - self.last_accrue_block);
+        let reward_per_token =
+            (self.reward_rate(current_block) * blocks_since_last_accrue) / self.total_supply;
+
+        return reward_per_token * Uint128::from(10u8).pow(TOKEN_DECIMALS as u32);
     }
 
+    /// unvested_income = reward_rate_stored * blocks_since_last_income(< distribution_period)
+    /// state.reward_rate_stored = (unvested_income + add_amount) / new_distribution_period
+    /// state.distribution_period = input.new_distribution_period;
+    /// state.last_income_block = input.current_block;
+    /// return unvested_income
     pub fn update_reward_rate(
         &mut self,
         storage: &mut dyn Storage,
@@ -142,7 +150,7 @@ impl TokenState {
         )?;
         Ok(unvested_income)
     }
-    // Reward only while distribution period since last income
+    /// Time since last income < distribution period ? reward_rate_stored : 0
     pub fn reward_rate(&self, current_block: Uint64) -> Uint128 {
         let blocks_elapsed: Uint64 = current_block - self.last_income_block;
         let resp = if blocks_elapsed < self.distribution_period {
@@ -174,13 +182,10 @@ impl UserState {
             withdraw_at: Uint64::zero(),
         }
     }
-
-    pub fn pending_reward(
-        &self,
-        reward_per_token: Uint128,
-        pending_reward_per_token: Uint128
-    ) -> Uint128 {
-        let pending_reward_per_token = reward_per_token + pending_reward_per_token;
+    /// The function _pendingRewardPerToken calculates the amount of reward tokens that have been accrued since the last time the reward tokens were distributed.
+    /// This allows the user to see if they have any pending rewards.
+    /// (pending_reward_per_token - reward_snapshot) * balance / 10^TOKEN_DECIMALS
+    pub fn pending_reward(&self, pending_reward_per_token: Uint128) -> Uint128 {
         let reward_per_token_delta = pending_reward_per_token - self.reward_snapshot;
 
         return (
@@ -202,10 +207,7 @@ mod state_tests {
         user_state.reward_snapshot = Uint128::zero();
 
         assert_eq!(
-            user_state.pending_reward(
-                Uint128::from(1000000000000000000u128),
-                Uint128::from(100000000u128)
-            ),
+            user_state.pending_reward(Uint128::from(100000000000000000000000000u128)),
             Uint128::from(100u128)
         );
     }

@@ -24,9 +24,8 @@ use crate::test_helpers::{ * };
 
 #[cfg(test)]
 mod utils_tests {
-    use std::ops::Mul;
-
-    use cosmwasm_std::{ StdResult, Decimal, StdError };
+    use cosmwasm_std::{ StdResult, Decimal, StdError, CosmosMsg, WasmMsg };
+    use cw20::Cw20ExecuteMsg;
     use cw20_base::{ state::{ BALANCES, TOKEN_INFO }, contract::execute_mint };
     use crate::{
         contract::utils::{ * },
@@ -37,7 +36,7 @@ mod utils_tests {
     use super::*;
 
     #[test]
-    fn test_claim() {
+    fn test_claim_with_reward() {
         let mut deps = mock_dependencies();
         let env = mock_env();
         let info = mock_info("creator", &[]);
@@ -46,12 +45,19 @@ mod utils_tests {
 
         let user_addr = Addr::unchecked("user");
 
-        set_balance(
-            deps.as_mut(),
-            &env,
-            &info,
-            &user_addr,
-            apply_decimals(Uint128::from(1000u16))
+        let initial_user_balance = apply_decimals(Uint128::from(1000u16));
+        let user_locked_until_delta = Uint64::from(1000u64);
+        let user_locked_balance = apply_decimals(Uint128::from(1000u16));
+        let reward_per_token = Uint128::from(300000u64);
+
+        set_balance(deps.as_mut(), &env, &info, &user_addr, initial_user_balance.clone()).unwrap();
+
+        TOKEN_STATE.update(
+            deps.as_mut().storage,
+            |mut state| -> StdResult<_> {
+                state.reward_per_token = reward_per_token.clone();
+                Ok(state)
+            }
         ).unwrap();
 
         USER_STATE.update(
@@ -59,53 +65,63 @@ mod utils_tests {
             &user_addr,
             |mut state| -> StdResult<_> {
                 let mut user = state.unwrap_or_default();
-                user.locked_balance = apply_decimals(Uint128::from(1000u16));
-                user.locked_until = Uint64::from(env.block.time.plus_seconds(1000).seconds());
+                user.locked_balance = user_locked_balance.clone();
+                user.locked_until = Uint64::from(
+                    env.block.time.plus_seconds(user_locked_until_delta.clone().u64()).seconds()
+                );
                 Ok(user)
             }
         ).unwrap();
 
+        let token_state = TOKEN_STATE.load(deps.as_mut().storage).unwrap();
         let user_state = USER_STATE.load(deps.as_mut().storage, &user_addr).unwrap();
 
         let current_block = Uint64::from(env.block.height.clone());
 
-        TOKEN_STATE.update(
-            deps.as_mut().storage,
-            |mut state| -> StdResult<_> {
-                state.reward_per_token = Uint128::from(300000u64);
-                Ok(state)
-            }
-        ).unwrap();
+        let mut expected_token_state = token_state.clone();
+        expected_token_state.reward_per_token = reward_per_token.clone();
+        expected_token_state.last_accrue_block = current_block.clone();
 
-        let mut tmp_deps = mock_dependencies();
-        let mut expected_token_state = TOKEN_STATE.load(deps.as_mut().storage).unwrap();
-        TOKEN_STATE.save(tmp_deps.as_mut().storage, &expected_token_state).unwrap();
-        expected_token_state.accrue(tmp_deps.as_mut().storage, current_block).unwrap();
-
-        let expected_pending_reward = user_state.pending_reward(
-            expected_token_state.reward_per_token,
-            expected_token_state.pending_reward_per_token(current_block)
-        );
+        let expected_pending_reward = user_state.pending_reward(token_state.reward_per_token);
         let expected_balance =
-            user_state.locked_balance + Uint128::from(1000u128) / Uint128::from(MAX_LOCK_PERIOD);
+            (user_state.locked_balance * Uint128::from(1000u128)) / Uint128::from(MAX_LOCK_PERIOD);
+
+        let mut expected_user_state = user_state.clone();
+        expected_user_state.balance = expected_balance.clone();
+        expected_user_state.reward_snapshot = reward_per_token.clone();
 
         let mut user_info = info.clone();
         user_info.sender = user_addr.clone();
         let resp = claim(deps.as_mut(), &env, &user_info).unwrap();
 
-        // TODO: check states
-        println!("{:?}", resp);
+        expected_token_state.total_supply = expected_balance.clone();
 
-        
-        assert_has_events(
-            &resp,
-            vec![ContractEvent::Claim {
-                account: "none".to_string(), //user_addr.to_string(),
-                claim_amount: expected_pending_reward.clone(),
-                ve_balance: expected_balance.clone(),
-            }]
+        assert_eq!(TOKEN_STATE.load(deps.as_mut().storage).unwrap(), expected_token_state);
+        assert_eq!(
+            USER_STATE.load(deps.as_mut().storage, &user_addr).unwrap(),
+            expected_user_state
         );
-        // TODO: finish
+        assert_eq!(
+            BALANCES.load(deps.as_ref().storage, &user_addr).unwrap(),
+            expected_balance.clone()
+        );
+
+        let expected_message = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: token_state.locked_token.to_string(),
+            msg: to_binary(
+                &(Cw20ExecuteMsg::Transfer {
+                    recipient: user_addr.clone().into(),
+                    amount: expected_pending_reward.clone(),
+                })
+            ).unwrap(),
+            funds: vec![],
+        });
+
+        assert_eq!(resp.messages.len(), 1);
+        let msg = resp.messages.get(0).unwrap();
+        assert_eq!(msg.msg, expected_message);
+
+        // TODO: test events
     }
 
     #[test]
@@ -260,8 +276,8 @@ mod utils_tests {
         ).unwrap();
 
         // assert_has_events(
-            // &resp,
-            // vec![ContractEvent::Mint { amount: Uint128::from(100u16), to: user_addr.to_string() }]
+        // &resp,
+        // vec![ContractEvent::Mint { amount: Uint128::from(100u16), to: user_addr.to_string() }]
         // );
 
         // Ensure that cw20 state and our states are synced

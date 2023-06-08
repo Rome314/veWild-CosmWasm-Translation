@@ -71,7 +71,7 @@ impl TokenState {
         })?;
 
         let event = ContractEvent::NewDistributionPeriod { value: new_distribution_period };
-        let resp = Response::new().add_attributes(event.to_attributes());
+        let resp = Response::new().add_event(event.to_cosmos_event());
 
         Ok(resp)
     }
@@ -208,7 +208,7 @@ mod state_tests {
 
         assert_eq!(
             user_state.pending_reward(Uint128::from(100000000000000000000000000u128)),
-            Uint128::from(100u128)
+            Uint128::from(10000000000u128)
         );
     }
 

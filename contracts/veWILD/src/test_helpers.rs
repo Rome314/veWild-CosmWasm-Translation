@@ -1,7 +1,11 @@
+use std::collections::HashMap;
+use std::iter::Map;
+
 use crate::consts::TOKEN_DECIMALS;
 use crate::contract::*;
 use crate::events::ContractEvent;
 use crate::msg::*;
+use cosmwasm_std::Attribute;
 use cosmwasm_std::ContractResult;
 use cosmwasm_std::DepsMut;
 use cosmwasm_std::Env;
@@ -93,71 +97,51 @@ pub fn apply_decimals(amount: Uint128) -> Uint128 {
 }
 
 pub fn assert_has_events(result: &Response, expected_events: Vec<ContractEvent>) {
-    
-    // let actual_events: Vec<ContractEvent> = result.attributes
-    //     .iter()
-    //     .filter_map(|attr| {
-    //         match attr.key.as_str() {
-    //             "Lock" =>
-    //                 Some(ContractEvent::Lock {
-    //                     account: attr.value.to_string(),
-    //                     locked_balance: Uint128::from(attr.value.parse::<u128>().unwrap()),
-    //                     ve_balance: Uint128::from(attr.value.parse::<u128>().unwrap()),
-    //                     locked_until: Uint64::from(attr.value.parse::<u64>().unwrap()),
-    //                 }),
-    //             "WithdrawRequest" =>
-    //                 Some(ContractEvent::WithdrawRequest {
-    //                     account: attr.value.to_string(),
-    //                     amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
-    //                     withdraw_at: Uint64::from(attr.value.parse::<u64>().unwrap()),
-    //                 }),
-    //             "Withdraw" =>
-    //                 Some(ContractEvent::Withdraw {
-    //                     account: attr.value.to_string(),
-    //                     amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
-    //                 }),
-    //             "Claim" =>
-    //                 Some(ContractEvent::Claim {
-    //                     account: attr.value.to_string(),
-    //                     claim_amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
-    //                     ve_balance: Uint128::from(attr.value.parse::<u128>().unwrap()),
-    //                 }),
-    //             "NewIncome" =>
-    //                 Some(ContractEvent::NewIncome {
-    //                     add_amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
-    //                     remaining_amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
-    //                     reward_rate: Uint128::from(attr.value.parse::<u128>().unwrap()),
-    //                 }),
-    //             "NewDistributionPeriod" =>
-    //                 Some(ContractEvent::NewDistributionPeriod {
-    //                     value: Uint64::from(attr.value.parse::<u64>().unwrap()),
-    //                 }),
-    //             "mint" =>
-    //                 Some(ContractEvent::Mint {
-    //                     to: attr.value.to_string(),
-    //                     amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
-    //                 }),
-    //             "burn" =>
-    //                 Some(ContractEvent::Burn {
-    //                     from: attr.value.to_string(),
-    //                     amount: Uint128::from(attr.value.parse::<u128>().unwrap()),
-    //                 }),
-    //             _ => None,
-    //         }
-    //     })
-    //     .collect();
+    let result_events = result.events.clone();
+    assert_eq!(
+        result_events.len(),
+        expected_events.len(),
+        "events length not equal, actual events: {:?}, expected events: {:?}",
+        result_events,
+        expected_events
+    );
+    for event in expected_events.iter() {
+        let cosmos_event = event.to_cosmos_event();
 
-    // assert_eq!(
-    //     true,
-    //     expected_events.iter().all(|event| -> bool {
-    //         match actual_events.contains(event) {
-    //             true => true,
-    //             false => {
-    //                 println!("missed event: {:?}", event);
-    //                 println!("Actual events: {:?}", actual_events);
-    //                 false
-    //             }
-    //         }
-    //     })
-    // )
+        let found_event = result_events.iter().find(|e| e.ty.eq(&cosmos_event.ty));
+        match found_event {
+            Some(found_event) => {
+                assert_eq!(found_event, cosmos_event, "{:?} event not equal", cosmos_event.ty);
+            }
+            None => panic!("Event not found: {:?}", cosmos_event.ty),
+        }
+    }
+}
+
+pub fn assert_has_attributes(result: &Response, attrs: HashMap<&str, String>) {
+    let result_attrs = result.attributes.clone();
+    assert_eq!(
+        result_attrs.len(),
+        attrs.len(),
+        "attributes length not equal, actual attributes: {:?}, expected attributes: {:?}",
+        result_attrs,
+        attrs
+    );
+
+    result_attrs.iter().for_each(|attr| {
+        let expected_value = attrs.get(attr.key.as_str());
+        match expected_value {
+            Some(expected_value) => {
+                assert_eq!(
+                    attr.value,
+                    expected_value.to_string(),
+                    "{:?} attribute value not equal, actual: {:?}, expected: {:?}",
+                    attr.key,
+                    attr.value,
+                    expected_value
+                );
+            }
+            None => panic!("unexpected attribute: {:?}", attr.key),
+        }
+    });
 }

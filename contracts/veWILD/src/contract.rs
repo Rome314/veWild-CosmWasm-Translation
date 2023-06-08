@@ -141,7 +141,7 @@ pub(crate) mod utils {
             claim_amount: pending_reward,
             ve_balance: user_balance,
         };
-        let response = response.add_attributes(event.to_attributes()).add_messages(messages);
+        let response = response.add_event(event.to_cosmos_event()).add_messages(messages);
 
         Ok(response)
     }
@@ -165,7 +165,7 @@ pub(crate) mod utils {
 
         let new_balance =
             (user_state.locked_balance * lock_seconds) / Uint128::from(MAX_LOCK_PERIOD);
-        
+
         user_state.locked_until = new_locked_until;
 
         USER_STATE.save(deps.storage, &account, &user_state)?;
@@ -272,7 +272,6 @@ mod exec {
         new_locked_until: Uint64
     ) -> Result<Response, ContractError> {
         let current_block = Uint64::from(env.block.height);
-        let current_block_ts = Uint64::from(env.block.time.seconds());
 
         let lock_seconds: Uint64 = new_locked_until - current_block;
 
@@ -311,7 +310,7 @@ mod exec {
             token_state.total_locked += amount;
 
             // TODO: check returns
-            token_state
+            let msg = token_state
                 .locked_token_client(&deps.as_ref())
                 .transfer_from(info.sender.to_owned(), env.contract.address.to_owned(), amount)?;
         }
@@ -343,7 +342,7 @@ mod exec {
             ve_balance: ve_balance.balance,
         };
 
-        response = response.add_attributes(event.to_attributes());
+        response = response.add_event(event.to_cosmos_event());
 
         Ok(response)
     }
@@ -377,7 +376,7 @@ mod exec {
             withdraw_at: user_state.withdraw_at,
         };
 
-        response = response.add_attributes(event.to_attributes());
+        response = response.add_event(event.to_cosmos_event());
 
         Ok(response)
     }
@@ -436,7 +435,7 @@ mod exec {
             account: info.sender.to_string(),
         };
 
-        response = response.add_attributes(event.to_attributes());
+        response = response.add_event(event.to_cosmos_event());
 
         Ok(response)
     }
@@ -492,7 +491,7 @@ mod exec {
             remaining_amount: unvested_income,
             reward_rate: token_state.reward_rate_stored,
         };
-        let response = response.add_attributes(event.to_attributes());
+        let response = response.add_event(event.to_cosmos_event());
 
         Ok(response)
     }

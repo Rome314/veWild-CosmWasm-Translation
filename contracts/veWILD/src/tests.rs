@@ -24,6 +24,8 @@ use crate::test_helpers::{ * };
 
 #[cfg(test)]
 mod utils_tests {
+    use std::collections::HashMap;
+
     use cosmwasm_std::{ StdResult, Decimal, StdError, CosmosMsg, WasmMsg };
     use cw20::Cw20ExecuteMsg;
     use cw20_base::{ state::{ BALANCES, TOKEN_INFO }, contract::execute_mint };
@@ -121,6 +123,15 @@ mod utils_tests {
         let msg = resp.messages.get(0).unwrap();
         assert_eq!(msg.msg, expected_message);
 
+        assert_has_events(
+            &resp,
+            vec![ContractEvent::Claim {
+                account: user_addr.to_string(),
+                claim_amount: expected_pending_reward,
+                ve_balance: expected_balance,
+            }]
+        );
+
         // TODO: test events
     }
 
@@ -154,10 +165,13 @@ mod utils_tests {
             Uint128::from(2u8)
         ); //(1000 * 300000)/126144000 = 2
 
-        assert_has_events(
-            &resp,
-            vec![ContractEvent::Mint { amount: Uint128::from(2u8), to: user_addr.to_string() }]
-        );
+        let mut expected_attributes: HashMap<&str, String> = HashMap::new();
+        expected_attributes.insert("action", "mint".to_string());
+        expected_attributes.insert("amount", "2".to_string());
+        expected_attributes.insert("to", user_addr.to_string());
+
+        assert_has_attributes(&resp, expected_attributes);
+
 
         // 2. Set zero balance
 
@@ -174,10 +188,14 @@ mod utils_tests {
             Uint128::zero()
         ); //(1000 * 0)/126144000 = 0
 
-        assert_has_events(
-            &resp,
-            vec![ContractEvent::Burn { amount: Uint128::from(2u8), from: user_addr.to_string() }]
-        );
+        let mut expected_attributes: HashMap<&str, String> = HashMap::new();
+        expected_attributes.insert("action", "burn".to_string());
+        expected_attributes.insert("amount", "2".to_string());
+        expected_attributes.insert("from", user_addr.to_string());
+
+        assert_has_attributes(&resp, expected_attributes);
+
+    
     }
 
     #[test]
@@ -227,10 +245,12 @@ mod utils_tests {
             Uint128::from(30 as u16)
         ).unwrap();
 
-        assert_has_events(
-            &resp,
-            vec![ContractEvent::Burn { amount: Uint128::from(70u16), from: user_addr.to_string() }]
-        );
+        let mut expected_attributes: HashMap<&str, String> = HashMap::new();
+        expected_attributes.insert("action", "burn".to_string());
+        expected_attributes.insert("amount", "70".to_string());
+        expected_attributes.insert("from", user_addr.to_string());
+
+        assert_has_attributes(&resp, expected_attributes);
 
         // Ensure that cw20 state and our states are synced
         let token_state = TOKEN_STATE.load(deps_binding.as_ref().storage).unwrap();
@@ -386,6 +406,8 @@ mod utils_tests {
 
 #[cfg(test)]
 mod contract_tests {
+    use std::{ vec, ops::Mul };
+
     use cw20_base::state::{ TokenInfo, TOKEN_INFO, MinterData };
 
     use crate::state::{ TOKEN_STATE, TokenState };
@@ -397,7 +419,7 @@ mod contract_tests {
         let mut deps_binding = mock_dependencies();
         let env = mock_env();
 
-        let _resp = instantiate(
+        let resp = instantiate(
             deps_binding.as_mut(),
             env.to_owned(),
             mock_info("creator", &[]),
@@ -432,6 +454,11 @@ mod contract_tests {
         let token_info = TOKEN_INFO.load(deps_binding.as_ref().storage).unwrap();
         assert_eq!(expected_token_info, token_info);
 
+        assert_has_events(
+            &resp,
+            vec![ContractEvent::NewDistributionPeriod { value: Uint64::from(1000 as u16) }]
+        )
+
         // TODO: test events
     }
 
@@ -464,19 +491,11 @@ mod contract_tests {
         let resp = execute(deps.branch(), env.clone(), info, msg).unwrap();
 
         assert_eq!(expected_state, TOKEN_STATE.load(deps.storage).unwrap());
-        assert_eq!(
-            resp.attributes
-                .iter()
-                .find(|attr| attr.key == "action")
-                .unwrap().value,
-            "new_distribution_period"
-        );
-        assert_eq!(
-            resp.attributes
-                .iter()
-                .find(|attr| attr.key == "value")
-                .unwrap().value,
-            new_distribution_period.to_string()
+        assert_has_events(
+            &resp,
+            vec![ContractEvent::NewDistributionPeriod {
+                value: new_distribution_period,
+            }]
         );
     }
 }

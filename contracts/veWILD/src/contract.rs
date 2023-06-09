@@ -111,7 +111,9 @@ mod exec {
     ) -> Result<Response, ContractError> {
         let current_ts = Uint64::from(env.block.time.seconds());
 
-        let lock_seconds: Uint64 = new_locked_until.checked_sub(current_ts).unwrap_or(Uint64::zero());
+        let lock_seconds: Uint64 = new_locked_until
+            .checked_sub(current_ts)
+            .unwrap_or(Uint64::zero());
 
         if lock_seconds < Uint64::from(MIN_LOCK_PERIOD) {
             return Result::Err(ContractError::LockPeriodTooShort {});
@@ -152,8 +154,8 @@ mod exec {
 
         let mut messages: Vec<CosmosMsg> = vec![];
         if !amount.is_zero() {
-            // TODO: Do I need to handle it on Reply? 
-            
+            // TODO: Do I need to handle it on Reply?
+
             user_state.locked_balance += amount;
             token_state.total_locked += amount;
 
@@ -207,7 +209,7 @@ mod exec {
         env: Env,
         info: MessageInfo
     ) -> Result<Response, ContractError> {
-        let mut user_state: UserState = USER_STATE.load(deps.storage, &info.sender)?;
+        let user_state: UserState = USER_STATE.load(deps.storage, &info.sender)?;
 
         let withdraw_amount = user_state.locked_balance;
         if withdraw_amount.is_zero() {
@@ -221,13 +223,21 @@ mod exec {
 
         let mut response = utils::claim(deps.branch(), &env, &info)?;
 
-        user_state.withdraw_at = current_time + Uint64::from(WITHDRAW_DELAY);
-        USER_STATE.save(deps.storage, &info.sender.clone(), &user_state)?;
+        let withdraw_at = current_time + Uint64::from(WITHDRAW_DELAY);
+        USER_STATE.update(
+            deps.storage,
+            &info.sender.clone(),
+            |state_opt| -> StdResult<UserState> {
+                let mut state = state_opt.unwrap();
+                state.withdraw_at = withdraw_at.clone();
+                Ok(state)
+            }
+        )?;
 
         let event = ContractEvent::WithdrawRequest {
             account: info.sender.to_string(),
             amount: withdraw_amount,
-            withdraw_at: user_state.withdraw_at,
+            withdraw_at: withdraw_at,
         };
 
         response = response.add_event(event.to_cosmos_event());
@@ -431,21 +441,26 @@ pub(crate) mod utils {
         USER_STATE.save(deps.storage, &info.sender.to_owned(), &user_state)?;
         TOKEN_STATE.save(deps.storage, &token_state)?;
 
-        let response: Response = update_lock(
+        let mut response: Response = update_lock(
             deps.branch(),
             env,
             info,
             &info.sender,
             user_state.locked_until
         )?;
-        let user_balance = query_balance(deps.as_ref(), user_address.clone())?.balance;
 
-        let event = ContractEvent::Claim {
-            account: user_address,
-            claim_amount: pending_reward,
-            ve_balance: user_balance,
-        };
-        let response = response.add_event(event.to_cosmos_event()).add_messages(messages);
+        response = response.add_messages(messages);
+
+        if !pending_reward.is_zero() {
+            let user_balance = query_balance(deps.as_ref(), user_address.clone())?.balance;
+
+            let event = ContractEvent::Claim {
+                account: user_address,
+                claim_amount: pending_reward,
+                ve_balance: user_balance,
+            };
+            response = response.add_event(event.to_cosmos_event());
+        }
 
         Ok(response)
     }
@@ -523,7 +538,9 @@ pub(crate) mod utils {
             }
         )?;
 
-        user_state.balance = amount;
+        let user_balance = query_balance(deps.as_ref(), account.to_string())?.balance;
+
+        user_state.balance = user_balance;
         USER_STATE.save(deps.storage, account, &user_state)?;
 
         match cw20_result {

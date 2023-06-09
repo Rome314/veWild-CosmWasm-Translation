@@ -396,7 +396,7 @@ mod contract_tests {
     use crate::{
         state::{ TOKEN_STATE, TokenState, UserState, USER_STATE },
         error::ContractError,
-        consts::{ MAX_LOCK_PERIOD, MIN_LOCK_PERIOD },
+        consts::{ MAX_LOCK_PERIOD, MIN_LOCK_PERIOD, WITHDRAW_DELAY },
         contract::utils::set_balance,
     };
 
@@ -491,7 +491,6 @@ mod contract_tests {
             }
         ).unwrap();
 
-
         let amount = apply_decimals(Uint128::from(1u8));
         let lock_period = Uint64::from(MIN_LOCK_PERIOD * 2);
         let new_locked_until = Uint64::from(env.block.time.seconds() + lock_period.u64());
@@ -501,7 +500,6 @@ mod contract_tests {
             new_locked_until: new_locked_until,
         };
 
-       
         deps.querier.update_wasm(cw20_mock_querier(amount.clone()));
 
         let info = mock_info(user_addr.as_str(), &[]);
@@ -753,6 +751,151 @@ mod contract_tests {
 
         let error = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap_err();
         assert_eq!(error, ContractError::CannotReduceLockedTime {});
+    }
+
+    #[test]
+    fn test_execute_request_withdraw_with_claim() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("creator", &[]);
+
+        mock_instantiate(deps.as_mut(), env.clone(), info.to_owned());
+
+        let user_addr = Addr::unchecked("user");
+        let info = mock_info(user_addr.as_str(), &[]);
+
+        let user_ve_balance = apply_decimals(Uint128::from(1u8));
+        set_balance(deps.as_mut(), &env, &info, &user_addr, user_ve_balance.clone()).unwrap();
+
+        let mut initial_user_state = USER_STATE.load(deps.as_mut().storage, &user_addr).unwrap();
+        initial_user_state.locked_balance = apply_decimals(Uint128::from(1u8));
+        initial_user_state.locked_until = Uint64::from(env.block.time.seconds());
+        USER_STATE.save(deps.as_mut().storage, &info.sender, &initial_user_state).unwrap();
+
+        let reward_per_token = apply_decimals(Uint128::from(1u8)) / Uint128::from(10u8);
+        TOKEN_STATE.update(
+            deps.as_mut().storage,
+            |mut state| -> StdResult<TokenState> {
+                state.reward_per_token = reward_per_token.clone();
+                Ok(state)
+            }
+        ).unwrap();
+
+        let msg = ExecuteMsg::RequestWithdrawMsg {};
+
+        let resp = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+        let mut expected_user_state = initial_user_state.clone();
+        expected_user_state.reward_snapshot = reward_per_token.clone();
+        expected_user_state.withdraw_at = Uint64::from(env.block.time.seconds() + WITHDRAW_DELAY);
+        expected_user_state.balance = Uint128::zero();
+
+        assert_eq!(
+            expected_user_state,
+            USER_STATE.load(deps.as_mut().storage, &info.sender).unwrap()
+        );
+
+        let expected_claim_amount =
+            (initial_user_state.balance * reward_per_token) / apply_decimals(Uint128::from(1u8));
+        assert_has_events(
+            &resp,
+            vec![
+                ContractEvent::WithdrawRequest {
+                    account: info.sender.to_string(),
+                    withdraw_at: expected_user_state.withdraw_at,
+                    amount: expected_user_state.locked_balance,
+                },
+                ContractEvent::Claim {
+                    account: info.sender.to_string(),
+                    claim_amount: expected_claim_amount,
+                    ve_balance: Uint128::zero(), // because locked_until == block.ts
+                }
+            ]
+        );
+
+        assert_eq!(resp.messages.len(), 1);
+
+        let expected_message = CosmosMsg::Wasm(cosmwasm_std::WasmMsg::Execute {
+            contract_addr: "cw20".to_string(),
+            msg: to_binary(
+                &(Cw20ExecuteMsg::Transfer {
+                    recipient: info.sender.to_string(),
+                    amount: expected_claim_amount,
+                })
+            ).unwrap(),
+            funds: vec![],
+        });
+
+        assert_eq!(resp.messages[0].msg, expected_message);
+
+        let mut expected_attributes: HashMap<&str, String> = HashMap::new();
+        expected_attributes.insert("action", "burn".to_string());
+        expected_attributes.insert("from", user_addr.to_string());
+        expected_attributes.insert("amount", user_ve_balance.to_string());
+
+        assert_has_attributes(&resp, expected_attributes)
+    }
+
+    #[test]
+    fn test_execute_request_withdraw_without_claim() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("creator", &[]);
+
+        mock_instantiate(deps.as_mut(), env.clone(), info.to_owned());
+
+        let mut user_state = UserState::default();
+        user_state.locked_balance = apply_decimals(Uint128::from(1u8));
+        user_state.locked_until = Uint64::from(env.block.time.seconds());
+        USER_STATE.save(deps.as_mut().storage, &info.sender, &user_state).unwrap();
+
+        let msg = ExecuteMsg::RequestWithdrawMsg {};
+
+        let resp = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+        let mut expected_user_state = user_state;
+        expected_user_state.withdraw_at = Uint64::from(env.block.time.seconds() + WITHDRAW_DELAY);
+
+        assert_eq!(
+            expected_user_state,
+            USER_STATE.load(deps.as_mut().storage, &info.sender).unwrap()
+        );
+
+        assert_has_events(
+            &resp,
+            vec![ContractEvent::WithdrawRequest {
+                account: info.sender.to_string(),
+                withdraw_at: expected_user_state.withdraw_at,
+                amount: expected_user_state.locked_balance,
+            }]
+        );
+    }
+
+    #[test]
+    fn test_execute_request_withdraw_errors() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("creator", &[]);
+
+        mock_instantiate(deps.as_mut(), env.clone(), info.to_owned());
+
+        // 1. Nothing to withdraw
+        let mut user_state = UserState::default();
+        USER_STATE.save(deps.as_mut().storage, &info.sender, &user_state).unwrap();
+
+        let msg = ExecuteMsg::RequestWithdrawMsg {};
+
+        let err = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap_err();
+        assert_eq!(err, ContractError::NothingToWithdraw {});
+
+        // 2. Not enough time passed
+        user_state.locked_balance = apply_decimals(Uint128::from(1u8));
+        user_state.locked_until = Uint64::from(env.block.time.seconds() + MIN_LOCK_PERIOD + 1000);
+        USER_STATE.save(deps.as_mut().storage, &info.sender, &user_state).unwrap();
+
+        let msg = ExecuteMsg::RequestWithdrawMsg {};
+        let err = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap_err();
+        assert_eq!(err, ContractError::WithdrawBeforeUnlock {});
     }
 
     #[test]

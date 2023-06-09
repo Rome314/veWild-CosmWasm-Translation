@@ -131,8 +131,6 @@ mod utils_tests {
                 ve_balance: expected_balance,
             }]
         );
-
-        // TODO: test events
     }
 
     #[test]
@@ -172,7 +170,6 @@ mod utils_tests {
 
         assert_has_attributes(&resp, expected_attributes);
 
-
         // 2. Set zero balance
 
         let resp = update_lock(
@@ -194,8 +191,6 @@ mod utils_tests {
         expected_attributes.insert("from", user_addr.to_string());
 
         assert_has_attributes(&resp, expected_attributes);
-
-    
     }
 
     #[test]
@@ -330,20 +325,6 @@ mod utils_tests {
 
         let user_addr = Addr::unchecked("user");
 
-        // REPLACED WITH DEFAULT  TODO: Check is it required
-        // User not exist error
-        // let err = set_balance(
-        //     deps_binding.as_mut(),
-        //     &env,
-        //     &info,
-        //     &user_addr,
-        //     Uint128::from(100 as u16)
-        // ).unwrap_err();
-        // assert_eq!(
-        //     err,
-        //     ContractError::Std(StdError::NotFound { kind: "veWILD::state::UserState".to_string() })
-        // );
-
         // Claim first error
         let mut user_state = UserState::default();
         user_state.reward_snapshot = Uint128::from(5 as u16);
@@ -406,11 +387,18 @@ mod utils_tests {
 
 #[cfg(test)]
 mod contract_tests {
-    use std::{ vec, ops::Mul };
+    use std::{ vec, ops::Mul, f32::MIN, collections::HashMap };
 
+    use cosmwasm_std::{ attr, CosmosMsg, SubMsg, StdResult };
+    use cw20::Cw20ExecuteMsg;
     use cw20_base::state::{ TokenInfo, TOKEN_INFO, MinterData };
 
-    use crate::state::{ TOKEN_STATE, TokenState };
+    use crate::{
+        state::{ TOKEN_STATE, TokenState, UserState, USER_STATE },
+        error::ContractError,
+        consts::{ MAX_LOCK_PERIOD, MIN_LOCK_PERIOD },
+        contract::utils::set_balance,
+    };
 
     use super::*;
 
@@ -460,6 +448,311 @@ mod contract_tests {
         )
 
         // TODO: test events
+    }
+
+    #[test]
+    fn test_execute_claim() {
+        // TODO: add pending reward to implementation!!!
+    }
+
+    #[test]
+    fn test_execute_lock_unsufficient_reserves() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("creator", &[]);
+
+        mock_instantiate(deps.as_mut().branch(), env.clone(), info.to_owned());
+        let user_addr = Addr::unchecked("user");
+
+        let initial_locked = apply_decimals(Uint128::from(1u8));
+
+        let initial_user_state = UserState {
+            locked_balance: initial_locked.clone(),
+            reward_snapshot: Uint128::zero(),
+            locked_until: Uint64::from(env.block.time.seconds() + MIN_LOCK_PERIOD),
+            balance: Uint128::zero(),
+            withdraw_at: Uint64::zero(),
+        };
+
+        USER_STATE.save(
+            deps.as_mut().storage,
+            &Addr::unchecked(user_addr.clone()),
+            &initial_user_state
+        ).unwrap();
+
+        set_balance(deps.as_mut(), &env, &info, &user_addr, initial_locked.clone()).unwrap();
+
+        TOKEN_STATE.update(
+            deps.as_mut().storage,
+            |mut state| -> StdResult<TokenState> {
+                state.total_locked = initial_locked.clone();
+                state.reward_per_token = apply_decimals(Uint128::from(1u8)) / Uint128::from(100u8);
+                Ok(state)
+            }
+        ).unwrap();
+
+
+        let amount = apply_decimals(Uint128::from(1u8));
+        let lock_period = Uint64::from(MIN_LOCK_PERIOD * 2);
+        let new_locked_until = Uint64::from(env.block.time.seconds() + lock_period.u64());
+
+        let msg = ExecuteMsg::LockMsg {
+            amount: amount.clone(),
+            new_locked_until: new_locked_until,
+        };
+
+       
+        deps.querier.update_wasm(cw20_mock_querier(amount.clone()));
+
+        let info = mock_info(user_addr.as_str(), &[]);
+        let err = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap_err();
+        assert_eq!(err, ContractError::InsufficientReserves {});
+    }
+
+    #[test]
+    fn test_execute_lock_add_to_existing() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("creator", &[]);
+
+        mock_instantiate(deps.as_mut().branch(), env.clone(), info.to_owned());
+        let user_addr = Addr::unchecked("user");
+
+        let initial_locked = apply_decimals(Uint128::from(1u8));
+
+        let initial_user_state = UserState {
+            locked_balance: initial_locked.clone(),
+            reward_snapshot: Uint128::zero(),
+            locked_until: Uint64::from(env.block.time.seconds() + MIN_LOCK_PERIOD),
+            balance: Uint128::zero(),
+            withdraw_at: Uint64::zero(),
+        };
+
+        USER_STATE.save(
+            deps.as_mut().storage,
+            &Addr::unchecked(user_addr.clone()),
+            &initial_user_state
+        ).unwrap();
+
+        set_balance(deps.as_mut(), &env, &info, &user_addr, initial_locked.clone()).unwrap();
+
+        TOKEN_STATE.update(
+            deps.as_mut().storage,
+            |mut state| -> StdResult<TokenState> {
+                state.total_locked = initial_locked.clone();
+                state.reward_per_token = apply_decimals(Uint128::from(1u8)) / Uint128::from(100u8);
+                Ok(state)
+            }
+        ).unwrap();
+
+        let token_state = TOKEN_STATE.load(deps.as_ref().storage).unwrap();
+
+        let amount = apply_decimals(Uint128::from(1u8));
+        let lock_period = Uint64::from(MIN_LOCK_PERIOD * 2);
+        let new_locked_until = Uint64::from(env.block.time.seconds() + lock_period.u64());
+
+        let msg = ExecuteMsg::LockMsg {
+            amount: amount.clone(),
+            new_locked_until: new_locked_until,
+        };
+
+        let expected_unvested_income =
+            token_state.reward_per_token * Uint128::from(token_state.distribution_period);
+        // Make sure that enough reserves;
+        deps.querier.update_wasm(
+            cw20_mock_querier(token_state.total_locked + amount.clone() + expected_unvested_income)
+        );
+
+        let info = mock_info(user_addr.as_str(), &[]);
+        let resp = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+        println!("{:?}\n\n", resp);
+        // TODO: test states
+
+        assert_eq!(resp.messages.len(), 2);
+
+        let expected_claim_amount =
+            (token_state.reward_per_token * initial_locked.clone()) /
+            apply_decimals(Uint128::from(1u8));
+
+        let expected_transfer_message = CosmosMsg::Wasm(cosmwasm_std::WasmMsg::Execute {
+            contract_addr: String::from("cw20"),
+            msg: to_binary(
+                &(Cw20ExecuteMsg::Transfer {
+                    recipient: user_addr.to_string(),
+                    amount: expected_claim_amount.clone(),
+                })
+            ).unwrap(),
+            funds: vec![],
+        });
+
+        assert_eq!(resp.messages[0].msg, expected_transfer_message);
+
+        let expected_transfer_from_message = CosmosMsg::Wasm(cosmwasm_std::WasmMsg::Execute {
+            contract_addr: String::from("cw20"),
+            msg: to_binary(
+                &(Cw20ExecuteMsg::TransferFrom {
+                    recipient: env.contract.address.to_string(),
+                    amount: amount.clone(),
+                    owner: info.sender.to_string(),
+                })
+            ).unwrap(),
+            funds: vec![],
+        });
+
+        assert_eq!(resp.messages[1].msg, expected_transfer_from_message);
+
+        let expected_balance_on_claim =
+            (initial_user_state.locked_balance * Uint128::from(MIN_LOCK_PERIOD)) /
+            Uint128::from(MAX_LOCK_PERIOD);
+
+        let expected_balance_at_the_end =
+            ((amount + initial_user_state.locked_balance) * Uint128::from(lock_period.clone())) /
+            Uint128::from(MAX_LOCK_PERIOD);
+
+        assert_has_events(
+            &resp,
+            vec![
+                ContractEvent::Claim {
+                    account: info.sender.to_string(),
+                    claim_amount: expected_claim_amount,
+                    ve_balance: expected_balance_on_claim.clone(),
+                },
+                ContractEvent::Lock {
+                    account: info.sender.to_string(),
+                    locked_balance: initial_user_state.locked_balance + amount.clone(),
+                    locked_until: new_locked_until,
+                    ve_balance: expected_balance_at_the_end.clone(),
+                }
+            ]
+        );
+
+        let initial_balance = initial_locked.clone();
+        let expected_burn_amount = initial_balance.clone() - expected_balance_on_claim.clone();
+        let expected_mint_amount = expected_balance_at_the_end - expected_balance_on_claim;
+
+        // TODO: deal with attributes
+        let expected_attributes = vec![
+            attr("action", String::from("burn")),
+            attr("from", info.sender.to_string()),
+            attr("amount", expected_burn_amount.to_string()),
+            attr("action", String::from("mint")),
+            attr("to", info.sender.to_string()),
+            attr("amount", expected_mint_amount.to_string())
+        ];
+
+        assert_eq!(resp.attributes.len(), expected_attributes.len());
+        assert_eq!(resp.attributes, expected_attributes);
+    }
+
+    #[test]
+    fn test_execute_lock_created_new() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("creator", &[]);
+
+        mock_instantiate(deps.as_mut().branch(), env.clone(), info.to_owned());
+
+        let amount = apply_decimals(Uint128::from(1u8));
+        let lock_period = Uint64::from(MIN_LOCK_PERIOD * 2);
+        let new_locked_until = Uint64::from(env.block.time.seconds() + lock_period.u64());
+
+        let msg = ExecuteMsg::LockMsg {
+            amount: amount.clone(),
+            new_locked_until: new_locked_until,
+        };
+
+        deps.querier.update_wasm(cw20_mock_querier(amount.clone()));
+
+        let info = mock_info("user", &[]);
+        let resp = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+        let expected_balance =
+            (amount * Uint128::from(lock_period.clone())) / Uint128::from(MAX_LOCK_PERIOD);
+
+        assert_eq!(resp.messages.len(), 1);
+
+        let expected_message = CosmosMsg::Wasm(cosmwasm_std::WasmMsg::Execute {
+            contract_addr: String::from("cw20"),
+            msg: to_binary(
+                &(Cw20ExecuteMsg::TransferFrom {
+                    recipient: env.contract.address.to_string(),
+                    amount: amount.clone(),
+                    owner: info.sender.to_string(),
+                })
+            ).unwrap(),
+            funds: vec![],
+        });
+
+        assert_eq!(resp.messages[0].msg, expected_message);
+
+        assert_has_events(
+            &resp,
+            vec![
+                ContractEvent::Lock {
+                    account: info.sender.to_string(),
+                    locked_balance: amount.clone(),
+                    locked_until: new_locked_until,
+                    ve_balance: expected_balance.clone(),
+                },
+                ContractEvent::Claim {
+                    account: info.sender.to_string(),
+                    claim_amount: Uint128::zero(),
+                    ve_balance: Uint128::zero(),
+                }
+            ]
+        );
+
+        let mut expected_attributes: HashMap<&str, String> = HashMap::new();
+        expected_attributes.insert("action", String::from("mint"));
+        expected_attributes.insert("to", info.sender.to_string());
+        expected_attributes.insert("amount", expected_balance.to_string());
+
+        assert_has_attributes(&resp, expected_attributes);
+    }
+
+    #[test]
+    fn test_execute_lock_errors() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("creator", &[]);
+
+        mock_instantiate(deps.as_mut().branch(), env.clone(), info.to_owned());
+
+        let amount = apply_decimals(Uint128::from(1u8));
+        // Too short period
+        let new_locked_until = Uint64::from(env.block.height + 1000);
+        let msg = ExecuteMsg::LockMsg {
+            amount: amount.clone(),
+            new_locked_until: new_locked_until,
+        };
+
+        let error = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap_err();
+        assert_eq!(error, ContractError::LockPeriodTooShort {});
+
+        // Too long period
+        let new_locked_until = Uint64::from(env.block.time.seconds() + MAX_LOCK_PERIOD + 1);
+        let msg = ExecuteMsg::LockMsg {
+            amount: amount.clone(),
+            new_locked_until: new_locked_until,
+        };
+
+        let error = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap_err();
+        assert_eq!(error, ContractError::LockPeriodTooLong {});
+
+        // Can not reduce lock time
+        let mut user_state = UserState::default();
+        user_state.locked_until = Uint64::from(env.block.time.seconds() + MIN_LOCK_PERIOD + 1000);
+        USER_STATE.save(deps.as_mut().storage, &info.sender, &user_state).unwrap();
+
+        let new_locked_until = Uint64::from(env.block.time.seconds() + MIN_LOCK_PERIOD + 500);
+        let msg = ExecuteMsg::LockMsg {
+            amount: amount.clone(),
+            new_locked_until: new_locked_until,
+        };
+
+        let error = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap_err();
+        assert_eq!(error, ContractError::CannotReduceLockedTime {});
     }
 
     #[test]

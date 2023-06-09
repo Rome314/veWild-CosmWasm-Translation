@@ -70,169 +70,6 @@ pub fn instantiate(
     Ok(response)
 }
 
-//  Internal functions
-pub(crate) mod utils {
-    use cosmwasm_std::WasmMsg;
-
-    use super::*;
-
-    pub fn check_reserves(deps: Deps, env: &Env) -> Result<(), ContractError> {
-        let token_state = TOKEN_STATE.load(deps.storage)?;
-
-        let reserve_balance = token_state
-            .locked_token_client(&deps)
-            .balance(env.contract.address.clone())?;
-
-        let current_block = Uint64::from(env.block.height);
-        let blocks_elapsed = token_state.distribution_period.min(
-            current_block - token_state.last_income_block
-        );
-
-        let unvested_income =
-            token_state.reward_per_token *
-            Uint128::from(token_state.distribution_period - blocks_elapsed);
-
-        if reserve_balance < token_state.total_locked + unvested_income {
-            return Err(ContractError::InsufficientReserves {});
-        }
-        Ok(())
-    }
-
-    pub fn claim(
-        mut deps: DepsMut,
-        env: &Env,
-        info: &MessageInfo
-    ) -> Result<Response, ContractError> {
-        let mut token_state = TOKEN_STATE.load(deps.storage)?;
-        let current_block = Uint64::from(env.block.height);
-
-        token_state.accrue(deps.storage, current_block)?;
-
-        let mut user_state = USER_STATE.load(deps.storage, &info.sender)?;
-
-        let pending_reward = user_state.pending_reward(token_state.reward_per_token.clone());
-
-        let mut messages: Vec<WasmMsg> = vec![];
-        if !pending_reward.is_zero() {
-            let msg = token_state
-                .locked_token_client(&deps.as_ref())
-                .transfer(info.sender.to_owned(), pending_reward)?;
-            messages.push(msg.into());
-        }
-
-        user_state.reward_snapshot = token_state.reward_per_token;
-
-        let user_address = info.sender.clone().to_string();
-
-        USER_STATE.save(deps.storage, &info.sender.to_owned(), &user_state)?;
-        TOKEN_STATE.save(deps.storage, &token_state)?;
-
-        let response: Response = update_lock(
-            deps.branch(),
-            env,
-            info,
-            &info.sender,
-            user_state.locked_until
-        )?;
-        let user_balance = query_balance(deps.as_ref(), user_address.clone())?.balance;
-
-        let event = ContractEvent::Claim {
-            account: user_address,
-            claim_amount: pending_reward,
-            ve_balance: user_balance,
-        };
-        let response = response.add_event(event.to_cosmos_event()).add_messages(messages);
-
-        Ok(response)
-    }
-
-    pub fn update_lock(
-        deps: DepsMut,
-        env: &Env,
-        info: &MessageInfo,
-        account: &Addr,
-        new_locked_until: Uint64
-    ) -> Result<Response, ContractError> {
-        let current_ts = Uint64::from(env.block.time.seconds());
-
-        let lock_seconds = if new_locked_until > current_ts {
-            Uint128::from(new_locked_until - current_ts)
-        } else {
-            Uint128::zero()
-        };
-
-        let mut user_state = USER_STATE.load(deps.storage, &account)?;
-
-        let new_balance =
-            (user_state.locked_balance * lock_seconds) / Uint128::from(MAX_LOCK_PERIOD);
-
-        user_state.locked_until = new_locked_until;
-
-        USER_STATE.save(deps.storage, &account, &user_state)?;
-
-        return set_balance(deps, &env, &info, &account, new_balance);
-    }
-
-    pub fn set_balance(
-        mut deps: DepsMut,
-        env: &Env,
-        info: &MessageInfo,
-        account: &Addr,
-        amount: Uint128
-    ) -> Result<Response, ContractError> {
-        let mut user_state: UserState = USER_STATE.load(deps.storage, account).unwrap_or_default();
-        let token_state = TOKEN_STATE.load(deps.storage)?;
-
-        if !user_state.reward_snapshot.eq(&token_state.reward_per_token) {
-            return Result::Err(ContractError::ClaimFirst {});
-        }
-
-        // TODO: check if this is correct way for internal transactions
-        let mut cw_info = info.clone();
-        let mut cw20_result: Result<Response, cw20_base::ContractError> = Ok(Response::default());
-        if amount > user_state.balance {
-            cw_info.sender = env.contract.address.clone();
-            cw20_result = execute_mint(
-                deps.branch(),
-                env.to_owned(),
-                cw_info, //contract info, because user can't mint by itself
-                account.to_string(),
-                amount - user_state.balance
-            );
-        } else if amount < user_state.balance {
-            cw_info.sender = account.clone();
-            // TODO: ensure that amount is burnt from user
-            cw20_result = execute_burn(
-                deps.branch(),
-                env.to_owned(),
-                cw_info, // original info, because we need burn from that user
-                user_state.balance - amount
-            );
-        }
-
-        let total_supply = query_token_info(deps.as_ref()).unwrap().total_supply;
-        TOKEN_STATE.update(
-            deps.storage,
-            |mut state| -> Result<_, ContractError> {
-                state.total_supply = total_supply;
-                Ok(state)
-            }
-        )?;
-
-        user_state.balance = amount;
-        USER_STATE.save(deps.storage, account, &user_state)?;
-
-        match cw20_result {
-            Ok(resp) => {
-                return Ok(resp);
-            }
-            Err(err) => {
-                return Err(ContractError::CW20BaseError(err.to_string()));
-            }
-        }
-    }
-}
-
 mod query {
     use crate::msg::*;
     use super::*;
@@ -261,6 +98,7 @@ pub fn execute(
 
 mod exec {
     use super::*;
+    use cosmwasm_std::StdError;
     use utils::*;
 
     // TODO: nonReentrant(?)
@@ -271,9 +109,9 @@ mod exec {
         amount: Uint128,
         new_locked_until: Uint64
     ) -> Result<Response, ContractError> {
-        let current_block = Uint64::from(env.block.height);
+        let current_ts = Uint64::from(env.block.time.seconds());
 
-        let lock_seconds: Uint64 = new_locked_until - current_block;
+        let lock_seconds: Uint64 = new_locked_until.checked_sub(current_ts).unwrap_or(Uint64::zero());
 
         if lock_seconds < Uint64::from(MIN_LOCK_PERIOD) {
             return Result::Err(ContractError::LockPeriodTooShort {});
@@ -282,7 +120,11 @@ mod exec {
             return Result::Err(ContractError::LockPeriodTooLong {});
         }
 
-        let mut user_state = USER_STATE.load(deps.storage, &info.sender)?;
+        let mut user_state = USER_STATE.load(deps.storage, &info.sender).unwrap_or_else(|_err| {
+            let state = UserState::default();
+            USER_STATE.save(deps.storage, &info.sender, &state).unwrap();
+            state
+        });
         if new_locked_until < user_state.locked_until {
             return Result::Err(ContractError::CannotReduceLockedTime {});
         }
@@ -300,12 +142,18 @@ mod exec {
             .iter()
             .map(|msg| msg.msg.clone())
             .collect();
-        response = response.add_messages(cosmos_messages).add_events(claim_response.events);
+        response = response
+            .add_messages(cosmos_messages)
+            .add_events(claim_response.events)
+            .add_attributes(claim_response.attributes);
 
         let mut token_state = TOKEN_STATE.load(deps.storage)?;
+        let mut user_state = USER_STATE.load(deps.storage, &info.sender)?;
 
-        let messages: Vec<CosmosMsg> = vec![];
+        let mut messages: Vec<CosmosMsg> = vec![];
         if !amount.is_zero() {
+            // TODO: Do I need to handle it on Reply? 
+            
             user_state.locked_balance += amount;
             token_state.total_locked += amount;
 
@@ -313,7 +161,10 @@ mod exec {
             let msg = token_state
                 .locked_token_client(&deps.as_ref())
                 .transfer_from(info.sender.to_owned(), env.contract.address.to_owned(), amount)?;
+            messages.push(CosmosMsg::Wasm(msg));
         }
+        // TODO: check for submessage
+        response = response.add_messages(messages);
 
         USER_STATE.save(deps.storage, &info.sender, &user_state)?;
         TOKEN_STATE.save(deps.storage, &token_state)?;
@@ -329,7 +180,10 @@ mod exec {
             .iter()
             .map(|msg| msg.msg.clone())
             .collect();
-        response = response.add_messages(cosmos_messages).add_events(update_lock_response.events);
+        response = response
+            .add_messages(cosmos_messages)
+            .add_events(update_lock_response.events)
+            .add_attributes(update_lock_response.attributes);
 
         utils::check_reserves(deps.as_ref(), &env)?;
 
@@ -520,10 +374,165 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use cosmwasm_std::{ coins, Addr };
-    use cw_multi_test::{ App, ContractWrapper, Executor };
+//  Internal functions
+pub(crate) mod utils {
+    use cosmwasm_std::WasmMsg;
 
     use super::*;
+
+    pub fn check_reserves(deps: Deps, env: &Env) -> Result<(), ContractError> {
+        let token_state = TOKEN_STATE.load(deps.storage)?;
+
+        let reserve_balance = token_state
+            .locked_token_client(&deps)
+            .balance(env.contract.address.clone())?;
+
+        let current_block = Uint64::from(env.block.height);
+        let blocks_elapsed = token_state.distribution_period.min(
+            current_block - token_state.last_income_block
+        );
+
+        let unvested_income =
+            token_state.reward_per_token *
+            Uint128::from(token_state.distribution_period - blocks_elapsed);
+
+        if reserve_balance < token_state.total_locked + unvested_income {
+            return Err(ContractError::InsufficientReserves {});
+        }
+        Ok(())
+    }
+
+    pub fn claim(
+        mut deps: DepsMut,
+        env: &Env,
+        info: &MessageInfo
+    ) -> Result<Response, ContractError> {
+        let mut token_state = TOKEN_STATE.load(deps.storage)?;
+        let current_block = Uint64::from(env.block.height);
+
+        token_state.accrue(deps.storage, current_block)?;
+
+        let mut user_state = USER_STATE.load(deps.storage, &info.sender)?;
+
+        let pending_reward = user_state.pending_reward(token_state.reward_per_token.clone());
+
+        let mut messages: Vec<WasmMsg> = vec![];
+        if !pending_reward.is_zero() {
+            let msg = token_state
+                .locked_token_client(&deps.as_ref())
+                .transfer(info.sender.to_owned(), pending_reward)?;
+            messages.push(msg.into());
+        }
+
+        user_state.reward_snapshot = token_state.reward_per_token;
+
+        let user_address = info.sender.clone().to_string();
+
+        USER_STATE.save(deps.storage, &info.sender.to_owned(), &user_state)?;
+        TOKEN_STATE.save(deps.storage, &token_state)?;
+
+        let response: Response = update_lock(
+            deps.branch(),
+            env,
+            info,
+            &info.sender,
+            user_state.locked_until
+        )?;
+        let user_balance = query_balance(deps.as_ref(), user_address.clone())?.balance;
+
+        let event = ContractEvent::Claim {
+            account: user_address,
+            claim_amount: pending_reward,
+            ve_balance: user_balance,
+        };
+        let response = response.add_event(event.to_cosmos_event()).add_messages(messages);
+
+        Ok(response)
+    }
+
+    pub fn update_lock(
+        deps: DepsMut,
+        env: &Env,
+        info: &MessageInfo,
+        account: &Addr,
+        new_locked_until: Uint64
+    ) -> Result<Response, ContractError> {
+        let current_ts = Uint64::from(env.block.time.seconds());
+
+        let lock_seconds = if new_locked_until > current_ts {
+            Uint128::from(new_locked_until - current_ts)
+        } else {
+            Uint128::zero()
+        };
+
+        let mut user_state = USER_STATE.load(deps.storage, &account).unwrap_or_default();
+
+        let new_balance =
+            (user_state.locked_balance * lock_seconds) / Uint128::from(MAX_LOCK_PERIOD);
+
+        user_state.locked_until = new_locked_until;
+
+        USER_STATE.save(deps.storage, &account, &user_state)?;
+
+        return set_balance(deps, &env, &info, &account, new_balance);
+    }
+
+    pub fn set_balance(
+        mut deps: DepsMut,
+        env: &Env,
+        info: &MessageInfo,
+        account: &Addr,
+        amount: Uint128
+    ) -> Result<Response, ContractError> {
+        let mut user_state: UserState = USER_STATE.load(deps.storage, account).unwrap_or_default();
+        let token_state = TOKEN_STATE.load(deps.storage)?;
+
+        if !user_state.reward_snapshot.eq(&token_state.reward_per_token) {
+            return Result::Err(ContractError::ClaimFirst {});
+        }
+
+        // TODO: check if this is correct way for internal transactions
+        let mut cw_info = info.clone();
+        let mut cw20_result: Result<Response, cw20_base::ContractError> = Ok(Response::default());
+        if amount > user_state.balance {
+            cw_info.sender = env.contract.address.clone();
+            cw20_result = execute_mint(
+                deps.branch(),
+                env.to_owned(),
+                cw_info, //contract info, because user can't mint by itself
+                account.to_string(),
+                amount - user_state.balance
+            );
+        } else if amount < user_state.balance {
+            cw_info.sender = account.clone();
+            // TODO: ensure that amount is burnt from user
+            cw20_result = execute_burn(
+                deps.branch(),
+                env.to_owned(),
+                cw_info, // original info, because we need burn from that user
+                user_state.balance - amount
+            );
+        }
+
+        let total_supply = query_token_info(deps.as_ref()).unwrap().total_supply;
+        TOKEN_STATE.update(
+            deps.storage,
+            |mut state| -> Result<_, ContractError> {
+                state.total_supply = total_supply;
+                Ok(state)
+            }
+        )?;
+
+        user_state.balance = amount;
+        USER_STATE.save(deps.storage, account, &user_state)?;
+
+        match cw20_result {
+            Ok(resp) => {
+                return Ok(resp);
+            }
+            Err(err) => {
+                return Err(ContractError::CW20BaseError(err.to_string()));
+            }
+        }
+    }
 }

@@ -182,6 +182,9 @@ impl UserState {
             withdraw_at: Uint64::zero(),
         }
     }
+
+    
+
     /// The function _pendingRewardPerToken calculates the amount of reward tokens that have been accrued since the last time the reward tokens were distributed.
     /// This allows the user to see if they have any pending rewards.
     /// (pending_reward_per_token - reward_snapshot) * balance / 10^TOKEN_DECIMALS

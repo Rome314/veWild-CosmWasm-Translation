@@ -389,7 +389,7 @@ mod utils_tests {
 mod contract_tests {
     use std::{ vec, ops::Mul, f32::MIN, collections::HashMap };
 
-    use cosmwasm_std::{ attr, CosmosMsg, SubMsg, StdResult };
+    use cosmwasm_std::{ attr, CosmosMsg, SubMsg, StdResult, Empty, WasmMsg };
     use cw20::Cw20ExecuteMsg;
     use cw20_base::state::{ TokenInfo, TOKEN_INFO, MinterData };
 
@@ -452,7 +452,133 @@ mod contract_tests {
 
     #[test]
     fn test_execute_claim() {
-        // TODO: add pending reward to implementation!!!
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("creator", &[]);
+
+        mock_instantiate(deps.as_mut().branch(), env.clone(), info.to_owned());
+        let user_addr = Addr::unchecked("user");
+
+        let initial_user_balance = apply_decimals(Uint128::from(1000u16));
+        let user_locked_until_delta = Uint64::from(1000u64);
+        let user_locked_balance = apply_decimals(Uint128::from(1000u16));
+        let reward_per_token = Uint128::from(300000u64);
+
+        set_balance(deps.as_mut(), &env, &info, &user_addr, initial_user_balance.clone()).unwrap();
+
+        TOKEN_STATE.update(
+            deps.as_mut().storage,
+            |mut state| -> StdResult<_> {
+                state.reward_per_token = reward_per_token.clone();
+                Ok(state)
+            }
+        ).unwrap();
+
+        USER_STATE.update(
+            deps.as_mut().storage,
+            &user_addr,
+            |mut state| -> StdResult<_> {
+                let mut user = state.unwrap_or_default();
+                user.locked_balance = user_locked_balance.clone();
+                user.locked_until = Uint64::from(
+                    env.block.time.plus_seconds(user_locked_until_delta.clone().u64()).seconds()
+                );
+                Ok(user)
+            }
+        ).unwrap();
+
+        let initial_token_state = TOKEN_STATE.load(deps.as_mut().storage).unwrap();
+        let initial_user_state = USER_STATE.load(deps.as_mut().storage, &user_addr).unwrap();
+
+        deps.querier.update_wasm(cw20_mock_querier(user_locked_balance.clone()));
+
+        let resp = execute(
+            deps.as_mut(),
+            env.clone(),
+            mock_info(user_addr.as_str(), &[]),
+            ExecuteMsg::ClaimMsg {}
+        ).unwrap();
+
+        let expected_pending_reward = initial_user_state.pending_reward(
+            initial_token_state.reward_per_token
+        );
+        let expected_balance =
+            (initial_user_state.locked_balance * Uint128::from(1000u128)) /
+            Uint128::from(MAX_LOCK_PERIOD);
+
+        let expected_message = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: initial_token_state.locked_token.to_string(),
+            msg: to_binary(
+                &(Cw20ExecuteMsg::Transfer {
+                    recipient: user_addr.clone().into(),
+                    amount: expected_pending_reward.clone(),
+                })
+            ).unwrap(),
+            funds: vec![],
+        });
+
+        let expected_resp: Response<Empty> = Response::new()
+            .add_message(expected_message)
+            .add_event(
+                ContractEvent::make_claim(
+                    user_addr.to_string(),
+                    expected_pending_reward.clone(),
+                    expected_balance.clone()
+                ).to_cosmos_event()
+            );
+
+        assert_eq!(expected_resp, resp);
+    }
+    #[test]
+    fn test_execute_claim_insufficient_reserves() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("creator", &[]);
+
+        mock_instantiate(deps.as_mut().branch(), env.clone(), info.to_owned());
+        let user_addr = Addr::unchecked("user");
+
+        let initial_user_balance = apply_decimals(Uint128::from(1000u16));
+        let user_locked_until_delta = Uint64::from(1000u64);
+        let user_locked_balance = apply_decimals(Uint128::from(1000u16));
+        let reward_per_token = Uint128::from(300000u64);
+
+        set_balance(deps.as_mut(), &env, &info, &user_addr, initial_user_balance.clone()).unwrap();
+
+        TOKEN_STATE.update(
+            deps.as_mut().storage,
+            |mut state| -> StdResult<_> {
+                state.reward_per_token = reward_per_token.clone();
+                state.total_locked = user_locked_balance.clone();
+                Ok(state)
+            }
+        ).unwrap();
+
+        USER_STATE.update(
+            deps.as_mut().storage,
+            &user_addr,
+            |state| -> StdResult<_> {
+                let mut user = state.unwrap_or_default();
+                user.locked_balance = user_locked_balance.clone();
+                user.locked_until = Uint64::from(
+                    env.block.time.plus_seconds(user_locked_until_delta.clone().u64()).seconds()
+                );
+                Ok(user)
+            }
+        ).unwrap();
+
+        deps.querier.update_wasm(
+            cw20_mock_querier(user_locked_balance.clone() / Uint128::from(2u128))
+        );
+
+        let err = execute(
+            deps.as_mut(),
+            env.clone(),
+            mock_info(user_addr.as_str(), &[]),
+            ExecuteMsg::ClaimMsg {}
+        ).unwrap_err();
+
+        assert_eq!(err, ContractError::InsufficientReserves {});
     }
 
     #[test]
@@ -896,6 +1022,117 @@ mod contract_tests {
         let msg = ExecuteMsg::RequestWithdrawMsg {};
         let err = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap_err();
         assert_eq!(err, ContractError::WithdrawBeforeUnlock {});
+    }
+
+    #[test]
+    fn test_execute_withdraw_success() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("creator", &[]);
+
+        mock_instantiate(deps.as_mut(), env.clone(), info.to_owned());
+
+        let lock_balance = apply_decimals(Uint128::from(1u8));
+        let mut initial_user_state = UserState::default();
+        initial_user_state.locked_balance = lock_balance.clone();
+        initial_user_state.withdraw_at = Uint64::from(env.block.time.seconds());
+        USER_STATE.save(deps.as_mut().storage, &info.sender, &initial_user_state).unwrap();
+
+        let mut initial_token_state = TOKEN_STATE.load(deps.as_mut().storage).unwrap();
+        initial_token_state.total_locked = lock_balance.clone();
+        TOKEN_STATE.save(deps.as_mut().storage, &initial_token_state).unwrap();
+
+        deps.querier.update_wasm(cw20_mock_querier(lock_balance.clone()));
+
+        let msg = ExecuteMsg::WithdrawMsg {};
+        let resp = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+        let expected_message = CosmosMsg::Wasm(cosmwasm_std::WasmMsg::Execute {
+            contract_addr: "cw20".to_string(),
+            msg: to_binary(
+                &(Cw20ExecuteMsg::Transfer {
+                    recipient: info.sender.to_string(),
+                    amount: lock_balance.clone(),
+                })
+            ).unwrap(),
+            funds: vec![],
+        });
+        let expected_resp: Response<Empty> = Response::new()
+            .add_event(
+                ContractEvent::make_withdraw(
+                    info.sender.to_string(),
+                    lock_balance.clone()
+                ).to_cosmos_event()
+            )
+            .add_message(expected_message.clone());
+
+        assert_eq!(resp, expected_resp);
+
+        let mut expected_user_state = initial_user_state.clone();
+        expected_user_state.locked_balance = Uint128::zero();
+        expected_user_state.withdraw_at = Uint64::zero();
+
+        let mut expected_token_state = initial_token_state.clone();
+        expected_token_state.total_locked = Uint128::zero();
+
+        assert_eq!(
+            expected_user_state,
+            USER_STATE.load(deps.as_mut().storage, &info.sender).unwrap()
+        );
+
+        assert_eq!(expected_token_state, TOKEN_STATE.load(deps.as_mut().storage).unwrap());
+    }
+
+    #[test]
+    fn test_execute_withdraw_errors() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("creator", &[]);
+
+        mock_instantiate(deps.as_mut(), env.clone(), info.to_owned());
+
+        let mut user_state = UserState::default();
+        USER_STATE.save(deps.as_mut().storage, &info.sender, &user_state).unwrap();
+
+        let msg = ExecuteMsg::WithdrawMsg {};
+
+        // 1. Nothing to withdraw
+        let err = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap_err();
+
+        assert_eq!(err, ContractError::WithdrawDelayNotOver {});
+
+        // 2. Not enough time passed
+        user_state.withdraw_at = Uint64::from(env.block.time.seconds() + 1);
+        USER_STATE.save(deps.as_mut().storage, &info.sender, &user_state).unwrap();
+
+        let err = execute(deps.as_mut(), env.clone(), info.clone(), msg.clone()).unwrap_err();
+        assert_eq!(err, ContractError::WithdrawDelayNotOver {});
+    }
+
+    #[test]
+    fn test_execute_withdraw_not_enough_reserves() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("creator", &[]);
+
+        mock_instantiate(deps.as_mut(), env.clone(), info.to_owned());
+
+        let lock_balance = apply_decimals(Uint128::from(1u8));
+        let mut initial_user_state = UserState::default();
+        initial_user_state.locked_balance = lock_balance.clone();
+        initial_user_state.withdraw_at = Uint64::from(env.block.time.seconds());
+        USER_STATE.save(deps.as_mut().storage, &info.sender, &initial_user_state).unwrap();
+
+        let mut initial_token_state = TOKEN_STATE.load(deps.as_mut().storage).unwrap();
+        initial_token_state.total_locked = lock_balance.clone() * Uint128::from(2u8); //to sure that there is left locked balance after withdraw
+        TOKEN_STATE.save(deps.as_mut().storage, &initial_token_state).unwrap();
+
+        deps.querier.update_wasm(cw20_mock_querier(lock_balance.clone() / Uint128::from(2u8)));
+
+        let msg = ExecuteMsg::WithdrawMsg {};
+        let err = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap_err();
+
+        assert_eq!(err, ContractError::InsufficientReserves {});
     }
 
     #[test]

@@ -260,7 +260,7 @@ mod exec {
             return Result::Err(ContractError::WithdrawDelayNotOver {});
         }
 
-        utils::claim(deps.branch(), &env, &info)?;
+        let mut response = utils::claim(deps.branch(), &env, &info).unwrap();
 
         let withdraw_amount = user_state.locked_balance;
         user_state.withdraw_at = Uint64::zero();
@@ -271,8 +271,6 @@ mod exec {
 
         USER_STATE.save(deps.storage, &info.sender, &user_state)?;
         TOKEN_STATE.save(deps.storage, &token_state)?;
-
-        let mut response = Response::new();
 
         let set_balance_resp = utils::set_balance(
             deps.branch(),
@@ -285,7 +283,10 @@ mod exec {
             .iter()
             .map(|msg| msg.msg.clone())
             .collect();
-        response = response.add_messages(cosmos_messages).add_events(set_balance_resp.events);
+        response = response
+            .add_messages(cosmos_messages)
+            .add_events(set_balance_resp.events)
+            .add_attributes(set_balance_resp.attributes);
 
         let cosmos_messages = token_state
             .locked_token_client(&deps.as_ref())
@@ -381,6 +382,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     use QueryMsg::*;
 
     match msg {
+        // TODO: query pending reward: pending_reward + token_state.peding_reward()
     }
 }
 

@@ -43,57 +43,66 @@ pub enum ContractEvent {
 }
 
 impl ContractEvent {
-    
+    pub fn make_lock(
+        account: String,
+        locked_balance: Uint128,
+        ve_balance: Uint128,
+        locked_until: Uint64
+    ) -> Self {
+        ContractEvent::Lock {
+            account,
+            locked_balance,
+            ve_balance,
+            locked_until,
+        }
+    }
 
-    // pub fn from_cosmos_event(ev: &Event) -> Option<ContractEvent> {
-    //     match ev.ty.as_str() {
-    //         "lock" =>
-    //             Some(ContractEvent::Lock {
-    //                 account: ev.value.to_string(),
-    //                 locked_balance: Uint128::from(ev.value.parse::<u128>().unwrap()),
-    //                 ve_balance: Uint128::from(ev.value.parse::<u128>().unwrap()),
-    //                 locked_until: Uint64::from(ev.value.parse::<u64>().unwrap()),
-    //             }),
-    //         "withdraw_request" =>
-    //             Some(ContractEvent::WithdrawRequest {
-    //                 account: ev.value.to_string(),
-    //                 amount: Uint128::from(ev.value.parse::<u128>().unwrap()),
-    //                 withdraw_at: Uint64::from(ev.value.parse::<u64>().unwrap()),
-    //             }),
-    //         "withdraw" =>
-    //             Some(ContractEvent::Withdraw {
-    //                 account: ev.value.to_string(),
-    //                 amount: Uint128::from(ev.value.parse::<u128>().unwrap()),
-    //             }),
-    //         "claim" =>
-    //             Some(ContractEvent::Claim {
-    //                 account: ev.value.to_string(),
-    //                 claim_amount: Uint128::from(ev.value.parse::<u128>().unwrap()),
-    //                 ve_balance: Uint128::from(ev.value.parse::<u128>().unwrap()),
-    //             }),
-    //         "new_income" =>
-    //             Some(ContractEvent::NewIncome {
-    //                 add_amount: Uint128::from(ev.value.parse::<u128>().unwrap()),
-    //                 remaining_amount: Uint128::from(ev.value.parse::<u128>().unwrap()),
-    //                 reward_rate: Uint128::from(ev.value.parse::<u128>().unwrap()),
-    //             }),
-    //         "new_distribution_period" =>
-    //             Some(ContractEvent::NewDistributionPeriod {
-    //                 value: Uint64::from(ev.value.parse::<u64>().unwrap()),
-    //             }),
-    //         "mint" =>
-    //             Some(ContractEvent::Mint {
-    //                 to: ev.value.to_string(),
-    //                 amount: Uint128::from(ev.value.parse::<u128>().unwrap()),
-    //             }),
-    //         "burn" =>
-    //             Some(ContractEvent::Burn {
-    //                 from: ev.value.to_string(),
-    //                 amount: Uint128::from(ev.value.parse::<u128>().unwrap()),
-    //             }),
-    //         _ => None,
-    //     }
-    // }
+    pub fn make_withdraw_request(account: String, amount: Uint128, withdraw_at: Uint64) -> Self {
+        ContractEvent::WithdrawRequest {
+            account,
+            amount,
+            withdraw_at,
+        }
+    }
+
+    pub fn make_withdraw(account: String, amount: Uint128) -> Self {
+        ContractEvent::Withdraw {
+            account,
+            amount,
+        }
+    }
+
+    pub fn make_claim(account: String, claim_amount: Uint128, ve_balance: Uint128) -> Self {
+        ContractEvent::Claim {
+            account,
+            claim_amount,
+            ve_balance,
+        }
+    }
+
+    pub fn make_new_income(
+        add_amount: Uint128,
+        remaining_amount: Uint128,
+        reward_rate: Uint128
+    ) -> Self {
+        ContractEvent::NewIncome {
+            add_amount,
+            remaining_amount,
+            reward_rate,
+        }
+    }
+
+    pub fn make_new_distribution_period(value: Uint64) -> Self {
+        ContractEvent::NewDistributionPeriod { value }
+    }
+
+    pub fn make_burn(amount: Uint128, from: String) -> Self {
+        ContractEvent::Burn { amount, from }
+    }
+
+    pub fn make_mint(amount: Uint128, to: String) -> Self {
+        ContractEvent::Mint { amount, to }
+    }
     pub fn to_cosmos_event(&self) -> Event {
         match self {
             ContractEvent::Lock { account, locked_balance, ve_balance, locked_until } =>

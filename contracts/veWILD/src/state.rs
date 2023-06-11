@@ -110,10 +110,14 @@ impl TokenState {
         return reward_per_token * Uint128::from(10u8).pow(TOKEN_DECIMALS as u32);
     }
 
-    /// unvested_income = reward_rate_stored * blocks_since_last_income(< distribution_period)
-    /// state.reward_rate_stored = (unvested_income + add_amount) / new_distribution_period
-    /// state.distribution_period = input.new_distribution_period;
-    /// state.last_income_block = input.current_block;
+    /// unvested_income = reward_rate_stored * blocks_since_last_income(< distribution_period)    
+    /// #
+    /// state.reward_rate_stored = (unvested_income + add_amount) / new_distribution_period    
+    /// #
+    /// state.distribution_period = input.new_distribution_period;    
+    /// #
+    /// state.last_income_block = input.current_block;    
+    /// #
     /// return unvested_income
     pub fn update_reward_rate(
         &mut self,
@@ -182,8 +186,6 @@ impl UserState {
             withdraw_at: Uint64::zero(),
         }
     }
-
-    
 
     /// The function _pendingRewardPerToken calculates the amount of reward tokens that have been accrued since the last time the reward tokens were distributed.
     /// This allows the user to see if they have any pending rewards.

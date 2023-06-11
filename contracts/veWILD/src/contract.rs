@@ -347,9 +347,10 @@ mod exec {
             new_distribution_period: token_state.distribution_period,
             current_block,
         })?;
+
+        // TODO: ensure that transfer_from message is accepted by the token contract
         utils::check_reserves(deps.as_ref(), &env)?;
 
-        TOKEN_STATE.save(deps.storage, &token_state)?;
 
         let event = ContractEvent::NewIncome {
             add_amount: add_amount,
@@ -392,6 +393,8 @@ pub(crate) mod utils {
 
     use super::*;
 
+    /// unvested_income = reward_per_token * (distribution_period - blocks_elapsed)
+    /// reserve_balance MUST BE  >= total_locked + unvested_income
     pub fn check_reserves(deps: Deps, env: &Env) -> Result<(), ContractError> {
         let token_state = TOKEN_STATE.load(deps.storage)?;
 

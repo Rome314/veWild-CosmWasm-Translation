@@ -451,137 +451,6 @@ mod contract_tests {
     }
 
     #[test]
-    fn test_execute_claim() {
-        let mut deps = mock_dependencies();
-        let env = mock_env();
-        let info = mock_info("creator", &[]);
-
-        mock_instantiate(deps.as_mut().branch(), env.clone(), info.to_owned());
-        let user_addr = Addr::unchecked("user");
-
-        let initial_user_balance = apply_decimals(Uint128::from(1000u16));
-        let user_locked_until_delta = Uint64::from(1000u64);
-        let user_locked_balance = apply_decimals(Uint128::from(1000u16));
-        let reward_per_token = Uint128::from(300000u64);
-
-        set_balance(deps.as_mut(), &env, &info, &user_addr, initial_user_balance.clone()).unwrap();
-
-        TOKEN_STATE.update(
-            deps.as_mut().storage,
-            |mut state| -> StdResult<_> {
-                state.reward_per_token = reward_per_token.clone();
-                Ok(state)
-            }
-        ).unwrap();
-
-        USER_STATE.update(
-            deps.as_mut().storage,
-            &user_addr,
-            |mut state| -> StdResult<_> {
-                let mut user = state.unwrap_or_default();
-                user.locked_balance = user_locked_balance.clone();
-                user.locked_until = Uint64::from(
-                    env.block.time.plus_seconds(user_locked_until_delta.clone().u64()).seconds()
-                );
-                Ok(user)
-            }
-        ).unwrap();
-
-        let initial_token_state = TOKEN_STATE.load(deps.as_mut().storage).unwrap();
-        let initial_user_state = USER_STATE.load(deps.as_mut().storage, &user_addr).unwrap();
-
-        deps.querier.update_wasm(cw20_mock_querier(user_locked_balance.clone()));
-
-        let resp = execute(
-            deps.as_mut(),
-            env.clone(),
-            mock_info(user_addr.as_str(), &[]),
-            ExecuteMsg::ClaimMsg {}
-        ).unwrap();
-
-        let expected_pending_reward = initial_user_state.pending_reward(
-            initial_token_state.reward_per_token
-        );
-        let expected_balance =
-            (initial_user_state.locked_balance * Uint128::from(1000u128)) /
-            Uint128::from(MAX_LOCK_PERIOD);
-
-        let expected_message = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: initial_token_state.locked_token.to_string(),
-            msg: to_binary(
-                &(Cw20ExecuteMsg::Transfer {
-                    recipient: user_addr.clone().into(),
-                    amount: expected_pending_reward.clone(),
-                })
-            ).unwrap(),
-            funds: vec![],
-        });
-
-        let expected_resp: Response<Empty> = Response::new()
-            .add_message(expected_message)
-            .add_event(
-                ContractEvent::make_claim(
-                    user_addr.to_string(),
-                    expected_pending_reward.clone(),
-                    expected_balance.clone()
-                ).to_cosmos_event()
-            );
-
-        assert_eq!(expected_resp, resp);
-    }
-    #[test]
-    fn test_execute_claim_insufficient_reserves() {
-        let mut deps = mock_dependencies();
-        let env = mock_env();
-        let info = mock_info("creator", &[]);
-
-        mock_instantiate(deps.as_mut().branch(), env.clone(), info.to_owned());
-        let user_addr = Addr::unchecked("user");
-
-        let initial_user_balance = apply_decimals(Uint128::from(1000u16));
-        let user_locked_until_delta = Uint64::from(1000u64);
-        let user_locked_balance = apply_decimals(Uint128::from(1000u16));
-        let reward_per_token = Uint128::from(300000u64);
-
-        set_balance(deps.as_mut(), &env, &info, &user_addr, initial_user_balance.clone()).unwrap();
-
-        TOKEN_STATE.update(
-            deps.as_mut().storage,
-            |mut state| -> StdResult<_> {
-                state.reward_per_token = reward_per_token.clone();
-                state.total_locked = user_locked_balance.clone();
-                Ok(state)
-            }
-        ).unwrap();
-
-        USER_STATE.update(
-            deps.as_mut().storage,
-            &user_addr,
-            |state| -> StdResult<_> {
-                let mut user = state.unwrap_or_default();
-                user.locked_balance = user_locked_balance.clone();
-                user.locked_until = Uint64::from(
-                    env.block.time.plus_seconds(user_locked_until_delta.clone().u64()).seconds()
-                );
-                Ok(user)
-            }
-        ).unwrap();
-
-        deps.querier.update_wasm(
-            cw20_mock_querier(user_locked_balance.clone() / Uint128::from(2u128))
-        );
-
-        let err = execute(
-            deps.as_mut(),
-            env.clone(),
-            mock_info(user_addr.as_str(), &[]),
-            ExecuteMsg::ClaimMsg {}
-        ).unwrap_err();
-
-        assert_eq!(err, ContractError::InsufficientReserves {});
-    }
-
-    #[test]
     fn test_execute_lock_unsufficient_reserves() {
         let mut deps = mock_dependencies();
         let env = mock_env();
@@ -1133,6 +1002,271 @@ mod contract_tests {
         let err = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap_err();
 
         assert_eq!(err, ContractError::InsufficientReserves {});
+    }
+
+    #[test]
+    fn test_execute_claim() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("creator", &[]);
+
+        mock_instantiate(deps.as_mut().branch(), env.clone(), info.to_owned());
+        let user_addr = Addr::unchecked("user");
+
+        let initial_user_balance = apply_decimals(Uint128::from(1000u16));
+        let user_locked_until_delta = Uint64::from(1000u64);
+        let user_locked_balance = apply_decimals(Uint128::from(1000u16));
+        let reward_per_token = Uint128::from(300000u64);
+
+        set_balance(deps.as_mut(), &env, &info, &user_addr, initial_user_balance.clone()).unwrap();
+
+        TOKEN_STATE.update(
+            deps.as_mut().storage,
+            |mut state| -> StdResult<_> {
+                state.reward_per_token = reward_per_token.clone();
+                Ok(state)
+            }
+        ).unwrap();
+
+        USER_STATE.update(
+            deps.as_mut().storage,
+            &user_addr,
+            |mut state| -> StdResult<_> {
+                let mut user = state.unwrap_or_default();
+                user.locked_balance = user_locked_balance.clone();
+                user.locked_until = Uint64::from(
+                    env.block.time.plus_seconds(user_locked_until_delta.clone().u64()).seconds()
+                );
+                Ok(user)
+            }
+        ).unwrap();
+
+        let initial_token_state = TOKEN_STATE.load(deps.as_mut().storage).unwrap();
+        let initial_user_state = USER_STATE.load(deps.as_mut().storage, &user_addr).unwrap();
+
+        deps.querier.update_wasm(cw20_mock_querier(user_locked_balance.clone()));
+
+        let resp = execute(
+            deps.as_mut(),
+            env.clone(),
+            mock_info(user_addr.as_str(), &[]),
+            ExecuteMsg::ClaimMsg {}
+        ).unwrap();
+
+        let expected_pending_reward = initial_user_state.pending_reward(
+            initial_token_state.reward_per_token
+        );
+        let expected_balance =
+            (initial_user_state.locked_balance * Uint128::from(1000u128)) /
+            Uint128::from(MAX_LOCK_PERIOD);
+
+        let expected_message = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: initial_token_state.locked_token.to_string(),
+            msg: to_binary(
+                &(Cw20ExecuteMsg::Transfer {
+                    recipient: user_addr.clone().into(),
+                    amount: expected_pending_reward.clone(),
+                })
+            ).unwrap(),
+            funds: vec![],
+        });
+
+        let expected_resp: Response<Empty> = Response::new()
+            .add_message(expected_message)
+            .add_event(
+                ContractEvent::make_claim(
+                    user_addr.to_string(),
+                    expected_pending_reward.clone(),
+                    expected_balance.clone()
+                ).to_cosmos_event()
+            );
+
+        assert_eq!(expected_resp, resp);
+    }
+    #[test]
+    fn test_execute_claim_insufficient_reserves() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("creator", &[]);
+
+        mock_instantiate(deps.as_mut().branch(), env.clone(), info.to_owned());
+        let user_addr = Addr::unchecked("user");
+
+        let initial_user_balance = apply_decimals(Uint128::from(1000u16));
+        let user_locked_until_delta = Uint64::from(1000u64);
+        let user_locked_balance = apply_decimals(Uint128::from(1000u16));
+        let reward_per_token = Uint128::from(300000u64);
+
+        set_balance(deps.as_mut(), &env, &info, &user_addr, initial_user_balance.clone()).unwrap();
+
+        TOKEN_STATE.update(
+            deps.as_mut().storage,
+            |mut state| -> StdResult<_> {
+                state.reward_per_token = reward_per_token.clone();
+                state.total_locked = user_locked_balance.clone();
+                Ok(state)
+            }
+        ).unwrap();
+
+        USER_STATE.update(
+            deps.as_mut().storage,
+            &user_addr,
+            |state| -> StdResult<_> {
+                let mut user = state.unwrap_or_default();
+                user.locked_balance = user_locked_balance.clone();
+                user.locked_until = Uint64::from(
+                    env.block.time.plus_seconds(user_locked_until_delta.clone().u64()).seconds()
+                );
+                Ok(user)
+            }
+        ).unwrap();
+
+        deps.querier.update_wasm(
+            cw20_mock_querier(user_locked_balance.clone() / Uint128::from(2u128))
+        );
+
+        let err = execute(
+            deps.as_mut(),
+            env.clone(),
+            mock_info(user_addr.as_str(), &[]),
+            ExecuteMsg::ClaimMsg {}
+        ).unwrap_err();
+
+        assert_eq!(err, ContractError::InsufficientReserves {});
+    }
+
+    #[test]
+    fn test_execute_add_income() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("creator", &[]);
+
+        let current_block = Uint64::from(env.block.height);
+
+        mock_instantiate(deps.as_mut().branch(), env.clone(), info.to_owned());
+        let initial_locked = apply_decimals(Uint128::from(1u8));
+        let initial_distribution_period = Uint64::from(1000u64);
+        let initial_reward_rate_stored =
+            apply_decimals(Uint128::from(1u128)) / Uint128::from(100u8);
+
+        let mut initial_token_state = TOKEN_STATE.load(deps.as_mut().storage).unwrap();
+        initial_token_state.total_locked = initial_locked.clone();
+        initial_token_state.distribution_period = initial_distribution_period.clone();
+        initial_token_state.last_income_block = current_block.clone(); // assume for maximal unvested_amount
+        initial_token_state.reward_rate_stored = initial_reward_rate_stored.clone();
+
+        TOKEN_STATE.save(deps.as_mut().storage, &initial_token_state).unwrap();
+
+        let add_amount = initial_locked.clone(); // twice total locked amount
+
+        let expected_unvested_income =
+            initial_reward_rate_stored.clone() * Uint128::from(initial_distribution_period.clone());
+        let expected_new_reward_per_token =
+            (expected_unvested_income.clone() + add_amount.clone()) /
+            Uint128::from(initial_distribution_period);
+
+        deps.querier.update_wasm(cw20_mock_querier(initial_locked.clone())); //any random value we don't check insufficient reserves error here
+
+        let resp = execute(
+            deps.as_mut(),
+            env.clone(),
+            mock_info("creator", &[]),
+            ExecuteMsg::AddIncomeMsg {
+                add_amount,
+            }
+        ).unwrap();
+
+        let mut expected_token_state = initial_token_state.clone();
+        expected_token_state.last_income_block = current_block.clone();
+        expected_token_state.reward_rate_stored = expected_new_reward_per_token.clone();
+
+        assert_eq!(expected_token_state, TOKEN_STATE.load(deps.as_mut().storage).unwrap());
+
+        let expected_message = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: initial_token_state.locked_token.to_string(),
+            msg: to_binary(
+                &(Cw20ExecuteMsg::TransferFrom {
+                    owner: info.sender.into_string(),
+                    recipient: env.contract.address.to_string(),
+                    amount: add_amount.clone(),
+                })
+            ).unwrap(),
+            funds: vec![],
+        });
+
+        let expected_response: Response<Empty> = Response::new()
+            .add_event(
+                ContractEvent::make_new_income(
+                    add_amount.clone(),
+                    expected_unvested_income.clone(),
+                    expected_new_reward_per_token.clone()
+                ).to_cosmos_event()
+            )
+            .add_message(expected_message);
+
+        assert_eq!(expected_response, resp);
+    }
+
+    #[test]
+    fn test_execute_add_income_insufficient_reserves() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let info = mock_info("creator", &[]);
+
+        let current_block = Uint64::from(env.block.height);
+
+        mock_instantiate(deps.as_mut().branch(), env.clone(), info.to_owned());
+        let initial_locked = apply_decimals(Uint128::from(1u8));
+        let initial_distribution_period = Uint64::from(1000u64);
+        let initial_reward_rate_stored =
+            apply_decimals(Uint128::from(1u128)) / Uint128::from(100u8);
+
+        let mut initial_token_state = TOKEN_STATE.load(deps.as_mut().storage).unwrap();
+        initial_token_state.total_locked = initial_locked.clone();
+        initial_token_state.total_supply = initial_locked.clone();
+        initial_token_state.distribution_period = initial_distribution_period.clone();
+        initial_token_state.last_income_block = current_block.clone(); // assume for maximal unvested_amount
+        initial_token_state.reward_rate_stored = initial_reward_rate_stored.clone();
+        initial_token_state.last_accrue_block =
+            current_block.clone() - initial_distribution_period.clone();
+
+        TOKEN_STATE.save(deps.as_mut().storage, &initial_token_state).unwrap();
+
+        let add_amount = initial_locked.clone(); // twice total locked amount
+
+        let expected_reward_per_token = initial_token_state.pending_reward_per_token(
+            current_block.clone()
+        );
+        let expected_unvested_income =
+            expected_reward_per_token * Uint128::from(initial_distribution_period.clone());
+
+        let expected_minimal_reserves = expected_unvested_income.clone() + initial_locked.clone();
+
+        deps.querier.update_wasm(
+            cw20_mock_querier(expected_minimal_reserves.clone() - Uint128::from(1u8))
+        );
+
+        let err = execute(
+            deps.as_mut(),
+            env.clone(),
+            mock_info("creator", &[]),
+            ExecuteMsg::AddIncomeMsg {
+                add_amount,
+            }
+        ).unwrap_err();
+
+        assert_eq!(err, ContractError::InsufficientReserves {});
+
+        deps.querier.update_wasm(cw20_mock_querier(expected_minimal_reserves.clone()));
+
+        let _resp = execute(
+            deps.as_mut(),
+            env.clone(),
+            mock_info("creator", &[]),
+            ExecuteMsg::AddIncomeMsg {
+                add_amount,
+            }
+        ).unwrap();
     }
 
     #[test]

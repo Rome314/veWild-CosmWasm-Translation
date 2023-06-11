@@ -1,6 +1,4 @@
-use cosmwasm_std::{ Uint128, Uint64, Attribute, Event, StdError };
-
-use crate::error::ContractError;
+use cosmwasm_std::{ Uint128, Uint64, Attribute, Event };
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ContractEvent {

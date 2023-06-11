@@ -1,11 +1,10 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{ Addr, Deps, Uint128, Uint64, Response, Storage };
+use cosmwasm_std::{ Addr, Uint128, Uint64, Response, Storage };
 use cw_storage_plus::{ Item, Map };
 
 use crate::consts::TOKEN_DECIMALS;
-use crate::cw20_client::CW20Client;
 use crate::error::ContractError;
-use crate::{ cw20_client, events::* };
+use crate::{ events::* };
 
 // Does this need to be in CosmWasm?
 // uint8  public constant decimals = 18;
@@ -46,11 +45,6 @@ impl TokenState {
             reward_rate_stored: Uint128::zero(),
         }
     }
-
-    pub fn locked_token_client<'a>(&self, deps: &'a Deps<'a>) -> CW20Client<'a> {
-        cw20_client::CW20Client::new(deps, self.locked_token.clone())
-    }
-
     /// accrue + update_reward_rate(with 0 add_amount)
     pub fn set_distribution_period(
         &mut self,
@@ -110,13 +104,13 @@ impl TokenState {
         return reward_per_token * Uint128::from(10u8).pow(TOKEN_DECIMALS as u32);
     }
 
-    /// unvested_income = reward_rate_stored * blocks_since_last_income(< distribution_period)    
+    /// unvested_income = reward_rate_stored * blocks_since_last_income(< distribution_period)
     /// #
-    /// state.reward_rate_stored = (unvested_income + add_amount) / new_distribution_period    
+    /// state.reward_rate_stored = (unvested_income + add_amount) / new_distribution_period
     /// #
-    /// state.distribution_period = input.new_distribution_period;    
+    /// state.distribution_period = input.new_distribution_period;
     /// #
-    /// state.last_income_block = input.current_block;    
+    /// state.last_income_block = input.current_block;
     /// #
     /// return unvested_income
     pub fn update_reward_rate(
@@ -192,10 +186,8 @@ impl UserState {
     /// (pending_reward_per_token - reward_snapshot) * balance / 10^TOKEN_DECIMALS
     pub fn pending_reward(&self, pending_reward_per_token: Uint128) -> Uint128 {
         let reward_per_token_delta = pending_reward_per_token - self.reward_snapshot;
-
-        return (
-            (reward_per_token_delta * self.balance) / Uint128::from(10u8).pow(TOKEN_DECIMALS as u32)
-        );
+        let pending_reward = reward_per_token_delta * self.balance;
+        pending_reward / Uint128::from(10u8).pow(TOKEN_DECIMALS as u32)
     }
 }
 
@@ -262,7 +254,6 @@ mod state_tests {
             .unwrap();
 
         assert_eq!(expected_state, TOKEN_STATE.load(deps.storage).unwrap());
-        // TODO: test events
     }
 
     #[test]

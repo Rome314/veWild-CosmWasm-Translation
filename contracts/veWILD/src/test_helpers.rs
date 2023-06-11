@@ -16,7 +16,7 @@ use cosmwasm_std::{ Addr, Uint64 };
 use cw20::BalanceResponse;
 use cw20::Cw20QueryMsg;
 
-const MOCK_LOCKED_TOKEN: &str = "cw20";
+pub const MOCK_LOCKED_TOKEN: &str = "cw20";
 
 pub fn mock_instantiate(deps: DepsMut, env: Env, info: MessageInfo) {
     instantiate(deps, env, info, InstantiateMsg {

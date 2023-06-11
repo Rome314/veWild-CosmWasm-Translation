@@ -1,4 +1,4 @@
-use cosmwasm_schema::{ cw_serde, QueryResponses };
+use cosmwasm_schema::{ cw_serde };
 use cosmwasm_std::{ Addr, Uint64, Uint128 };
 
 #[cw_serde]
@@ -7,29 +7,20 @@ pub struct InstantiateMsg {
     pub distribution_period: Uint64,
 }
 
-#[cw_serde]
-pub struct RequestWithdrawMsg {}
-
-#[cw_serde]
-pub struct WithdrawMsg {}
-
-#[cw_serde]
-pub struct ClaimMsg {}
-
 // This is for differentiating the messages in execute()
 #[cw_serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    LockMsg {
+    Lock {
         amount: Uint128,
         new_locked_until: Uint64,
     },
-    RequestWithdrawMsg,
-    WithdrawMsg,
-    ClaimMsg,
-    AddIncomeMsg {
+    RequestWithdraw,
+    Withdraw,
+    Claim,
+    AddIncome {
         add_amount: Uint128,
     },
-    SetDistributionPeriodMsg {
+    SetDistributionPeriod {
         blocks: Uint64,
     },
 }

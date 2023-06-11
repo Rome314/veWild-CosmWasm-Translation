@@ -1,8 +1,8 @@
-// use contract::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
-// use cosmwasm_schema::write_api;
+use veWILD::msg::{ ExecuteMsg, InstantiateMsg, QueryMsg };
+use cosmwasm_schema::write_api;
 
 fn main() {
-        write_api! {
+    write_api! {
             instantiate: InstantiateMsg,
             execute: ExecuteMsg,
             query: QueryMsg

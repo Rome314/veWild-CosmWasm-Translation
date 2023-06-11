@@ -1,40 +1,23 @@
-use crate::consts::TOKEN_DECIMALS;
-use crate::contract::*;
-use crate::events::ContractEvent;
-use crate::msg::*;
-use cosmwasm_std::ContractResult;
-use cosmwasm_std::DepsMut;
-use cosmwasm_std::Env;
-use cosmwasm_std::MessageInfo;
-use cosmwasm_std::QuerierResult;
-use cosmwasm_std::Response;
-use cosmwasm_std::SystemError;
-use cosmwasm_std::SystemResult;
-use cosmwasm_std::Uint128;
-use cosmwasm_std::WasmQuery;
-use cosmwasm_std::from_binary;
-use cosmwasm_std::to_binary;
-use cosmwasm_std::{ Addr, Uint64 };
-use cw20::BalanceResponse;
-use cw20::Cw20QueryMsg;
-// use cw_multi_test::{ App, ContractWrapper, Executor };
-use cosmwasm_std::testing::{ mock_dependencies, mock_env, mock_info };
+use std::{ vec, collections::HashMap };
+use cosmwasm_std::{Addr, attr, CosmosMsg, DepsMut, Empty, Env, from_binary, MessageInfo,  QuerierResult, Response, StdResult, SystemError, SystemResult, to_binary, Uint128, Uint64, WasmQuery, WasmMsg, testing::{mock_dependencies, mock_env, mock_info},};
+use cw20::Cw20ExecuteMsg;
+use cw20_base::{ state::{ BALANCES, TOKEN_INFO,TokenInfo,MinterData }, contract::execute_mint };
+use crate::{
+    contract::utils::{ * },
+    state::{ * },
+    consts::{ * },
+    msg::{*},
+    events::*,
+    error::*,
+    contract::utils::set_balance,
+    test_helpers::{ * },
+    *,
+};
 
-use crate::test_helpers::{ * };
+
 
 #[cfg(test)]
 mod utils_tests {
-    use std::collections::HashMap;
-
-    use cosmwasm_std::{ StdResult, Decimal, StdError, CosmosMsg, WasmMsg };
-    use cw20::Cw20ExecuteMsg;
-    use cw20_base::{ state::{ BALANCES, TOKEN_INFO }, contract::execute_mint };
-    use crate::{
-        contract::utils::{ * },
-        error::ContractError,
-        state::{ USER_STATE, UserState, TOKEN_STATE },
-        consts::MAX_LOCK_PERIOD,
-    };
     use super::*;
 
     #[test]
@@ -387,20 +370,7 @@ mod utils_tests {
 
 #[cfg(test)]
 mod contract_tests {
-    use std::{ vec, ops::Mul, f32::MIN, collections::HashMap };
-
-    use cosmwasm_std::{ attr, CosmosMsg, SubMsg, StdResult, Empty, WasmMsg };
-    use cw20::Cw20ExecuteMsg;
-    use cw20_base::state::{ TokenInfo, TOKEN_INFO, MinterData };
-
-    use crate::{
-        state::{ TOKEN_STATE, TokenState, UserState, USER_STATE },
-        error::ContractError,
-        consts::{ MAX_LOCK_PERIOD, MIN_LOCK_PERIOD, WITHDRAW_DELAY },
-        contract::utils::set_balance,
-    };
-
-    use super::*;
+    use super::{*};
 
     #[test]
     fn proper_instantiation() {
@@ -681,14 +651,12 @@ mod contract_tests {
 
         assert_has_events(
             &resp,
-            vec![
-                ContractEvent::Lock {
-                    account: info.sender.to_string(),
-                    locked_balance: amount.clone(),
-                    locked_until: new_locked_until,
-                    ve_balance: expected_balance.clone(),
-                }
-            ]
+            vec![ContractEvent::Lock {
+                account: info.sender.to_string(),
+                locked_balance: amount.clone(),
+                locked_until: new_locked_until,
+                ve_balance: expected_balance.clone(),
+            }]
         );
 
         let mut expected_attributes: HashMap<&str, String> = HashMap::new();

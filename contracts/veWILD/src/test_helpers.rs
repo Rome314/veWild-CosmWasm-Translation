@@ -93,7 +93,7 @@ pub fn cw20_mock_querier(contract_balance: Uint128) -> Box<dyn Fn(&WasmQuery) ->
 }
 
 pub fn apply_decimals(amount: Uint128) -> Uint128 {
-    amount * Uint128::new(10).pow(TOKEN_DECIMALS)
+    amount * Uint128::new(10).pow(TOKEN_DECIMALS) 
 }
 
 pub fn assert_has_events(result: &Response, expected_events: Vec<ContractEvent>) {

@@ -66,8 +66,6 @@ pub fn instantiate(
     TOKEN_STATE.save(deps.storage, &token_state)?;
 
     //TODO: set/manage owner (?)
-    //TODO: emit ownership transfer event (?)
-
     Ok(response)
 }
 
@@ -96,9 +94,7 @@ mod exec {
     use crate::{ internal::internal_funcs, cw20_client::CW20Client };
 
     use super::*;
-    use cosmwasm_std::StdError;
 
-    // TODO: nonReentrant(?)
     pub fn execute_lock(
         mut deps: DepsMut,
         env: Env,
@@ -119,7 +115,7 @@ mod exec {
             return Result::Err(ContractError::LockPeriodTooLong {});
         }
 
-        let mut user_state = USER_STATE.load(deps.storage, &info.sender).unwrap_or_else(|_err| {
+        let user_state = USER_STATE.load(deps.storage, &info.sender).unwrap_or_else(|_err| {
             let state = UserState::default();
             USER_STATE.save(deps.storage, &info.sender, &state).unwrap();
             state
@@ -128,7 +124,7 @@ mod exec {
             return Result::Err(ContractError::CannotReduceLockedTime {});
         }
 
-        // TODO:implement
+        // NOTE:implement
         /*         if is_contract(&info.sender) {
                    return Result::Err(ContractError::CannotLockContract {})
                }
@@ -205,7 +201,6 @@ mod exec {
         Ok(response)
     }
 
-    // TODO: nonReentrant(?)
     pub fn execute_request_withdraw(
         mut deps: DepsMut,
         env: Env,
@@ -247,7 +242,6 @@ mod exec {
         Ok(response)
     }
 
-    // TODO: nonReentrant(?)
     pub fn execute_withdraw(
         mut deps: DepsMut,
         env: Env,
@@ -308,7 +302,6 @@ mod exec {
         Ok(response)
     }
 
-    // TODO: nonReentrant(?)
     pub fn execute_claim(
         mut deps: DepsMut,
         env: Env,
@@ -328,7 +321,6 @@ mod exec {
         Ok(response)
     }
 
-    // TODO: nonReentrant(?)
     pub fn execute_add_income(
         deps: DepsMut,
         env: Env,

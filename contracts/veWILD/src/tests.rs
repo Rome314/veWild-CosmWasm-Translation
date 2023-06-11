@@ -1,20 +1,37 @@
 use std::{ vec, collections::HashMap };
-use cosmwasm_std::{Addr, attr, CosmosMsg, DepsMut, Empty, Env, from_binary, MessageInfo,  QuerierResult, Response, StdResult, SystemError, SystemResult, to_binary, Uint128, Uint64, WasmQuery, WasmMsg, testing::{mock_dependencies, mock_env, mock_info},};
+use cosmwasm_std::{
+    Addr,
+    attr,
+    CosmosMsg,
+    Empty,
+    Env,
+    from_binary,
+    MessageInfo,
+    QuerierResult,
+    Response,
+    StdResult,
+    SystemError,
+    SystemResult,
+    to_binary,
+    Uint128,
+    Uint64,
+    WasmQuery,
+    WasmMsg,
+    testing::{ mock_dependencies, mock_env, mock_info },
+};
 use cw20::Cw20ExecuteMsg;
-use cw20_base::{ state::{ BALANCES, TOKEN_INFO,TokenInfo,MinterData }, contract::execute_mint };
+use cw20_base::{ state::{ BALANCES, TOKEN_INFO, TokenInfo, MinterData }, contract::execute_mint };
 use crate::{
     contract::utils::{ * },
     state::{ * },
     consts::{ * },
-    msg::{*},
+    msg::{ * },
     events::*,
     error::*,
     contract::utils::set_balance,
-    test_helpers::{ * },
+    test_helpers::*,
     *,
 };
-
-
 
 #[cfg(test)]
 mod utils_tests {
@@ -102,18 +119,23 @@ mod utils_tests {
             funds: vec![],
         });
 
-        assert_eq!(resp.messages.len(), 1);
-        let msg = resp.messages.get(0).unwrap();
-        assert_eq!(msg.msg, expected_message);
-
-        assert_has_events(
-            &resp,
-            vec![ContractEvent::Claim {
-                account: user_addr.to_string(),
-                claim_amount: expected_pending_reward,
-                ve_balance: expected_balance,
-            }]
-        );
+        let expected_response: Response<Empty> = Response::new()
+            .add_message(expected_message)
+            .add_event(
+                ContractEvent::make_claim(
+                    user_addr.to_string(),
+                    expected_pending_reward,
+                    expected_balance.clone()
+                ).to_cosmos_event()
+            )
+            .add_attributes(
+                vec![
+                    attr("action", "burn"),
+                    attr("from", user_addr.to_string()),
+                    attr("amount", user_locked_balance - expected_balance)
+                ]
+            );
+        assert_eq!(resp, expected_response);
     }
 
     #[test]
@@ -146,12 +168,10 @@ mod utils_tests {
             Uint128::from(2u8)
         ); //(1000 * 300000)/126144000 = 2
 
-        let mut expected_attributes: HashMap<&str, String> = HashMap::new();
-        expected_attributes.insert("action", "mint".to_string());
-        expected_attributes.insert("amount", "2".to_string());
-        expected_attributes.insert("to", user_addr.to_string());
-
-        assert_has_attributes(&resp, expected_attributes);
+        let expected_response: Response<Empty> = Response::new().add_attributes(
+            vec![attr("action", "mint"), attr("to", user_addr.to_string()), attr("amount", "2")]
+        );
+        assert_eq!(resp, expected_response);
 
         // 2. Set zero balance
 
@@ -168,12 +188,10 @@ mod utils_tests {
             Uint128::zero()
         ); //(1000 * 0)/126144000 = 0
 
-        let mut expected_attributes: HashMap<&str, String> = HashMap::new();
-        expected_attributes.insert("action", "burn".to_string());
-        expected_attributes.insert("amount", "2".to_string());
-        expected_attributes.insert("from", user_addr.to_string());
-
-        assert_has_attributes(&resp, expected_attributes);
+        let expected_response: Response<Empty> = Response::new().add_attributes(
+            vec![attr("action", "burn"), attr("from", user_addr.to_string()), attr("amount", "2")]
+        );
+        assert_eq!(resp, expected_response);
     }
 
     #[test]
@@ -223,12 +241,10 @@ mod utils_tests {
             Uint128::from(30 as u16)
         ).unwrap();
 
-        let mut expected_attributes: HashMap<&str, String> = HashMap::new();
-        expected_attributes.insert("action", "burn".to_string());
-        expected_attributes.insert("amount", "70".to_string());
-        expected_attributes.insert("from", user_addr.to_string());
-
-        assert_has_attributes(&resp, expected_attributes);
+        let expected_response: Response<Empty> = Response::new().add_attributes(
+            vec![attr("action", "burn"), attr("from", user_addr.to_string()), attr("amount", "70")]
+        );
+        assert_eq!(resp, expected_response);
 
         // Ensure that cw20 state and our states are synced
         let token_state = TOKEN_STATE.load(deps_binding.as_ref().storage).unwrap();
@@ -273,10 +289,11 @@ mod utils_tests {
             Uint128::from(100 as u16)
         ).unwrap();
 
-        // assert_has_events(
-        // &resp,
-        // vec![ContractEvent::Mint { amount: Uint128::from(100u16), to: user_addr.to_string() }]
-        // );
+        let expected_response: Response<Empty> = Response::new().add_attributes(
+            vec![attr("action", "mint"), attr("to", user_addr.to_string()), attr("amount", "100")]
+        );
+
+        assert_eq!(resp, expected_response);
 
         // Ensure that cw20 state and our states are synced
         let token_state = TOKEN_STATE.load(deps_binding.as_ref().storage).unwrap();
@@ -292,7 +309,7 @@ mod utils_tests {
     #[test]
     fn test_set_balance_errors() {
         let mut deps_binding = mock_dependencies();
-        let mut env = mock_env();
+        let env = mock_env();
         let info = mock_info("creator", &[]);
 
         mock_instantiate(deps_binding.as_mut(), env.to_owned(), info.to_owned());
@@ -348,7 +365,7 @@ mod utils_tests {
 
         // 2. not enough balance
         let mut deps_binding = mock_dependencies();
-        let mut env = mock_env();
+        let env = mock_env();
         let info = mock_info("creator", &[]);
 
         mock_instantiate(deps_binding.as_mut(), env.to_owned(), info.to_owned());
@@ -370,7 +387,7 @@ mod utils_tests {
 
 #[cfg(test)]
 mod contract_tests {
-    use super::{*};
+    use super::{ * };
 
     #[test]
     fn proper_instantiation() {
@@ -412,12 +429,11 @@ mod contract_tests {
         let token_info = TOKEN_INFO.load(deps_binding.as_ref().storage).unwrap();
         assert_eq!(expected_token_info, token_info);
 
-        assert_has_events(
-            &resp,
-            vec![ContractEvent::NewDistributionPeriod { value: Uint64::from(1000 as u16) }]
-        )
+        let expected_response: Response<Empty> = Response::new().add_event(
+            ContractEvent::make_new_distribution_period(Uint64::from(1000 as u16)).to_cosmos_event()
+        );
 
-        // TODO: test events
+        assert_eq!(expected_response, resp);
     }
 
     #[test]
@@ -529,7 +545,6 @@ mod contract_tests {
         let info = mock_info(user_addr.as_str(), &[]);
         let resp = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
 
-        println!("{:?}\n\n", resp);
         // TODO: test states
 
         assert_eq!(resp.messages.len(), 2);
@@ -563,8 +578,6 @@ mod contract_tests {
             funds: vec![],
         });
 
-        assert_eq!(resp.messages[1].msg, expected_transfer_from_message);
-
         let expected_balance_on_claim =
             (initial_user_state.locked_balance * Uint128::from(MIN_LOCK_PERIOD)) /
             Uint128::from(MAX_LOCK_PERIOD);
@@ -573,39 +586,39 @@ mod contract_tests {
             ((amount + initial_user_state.locked_balance) * Uint128::from(lock_period.clone())) /
             Uint128::from(MAX_LOCK_PERIOD);
 
-        assert_has_events(
-            &resp,
-            vec![
-                ContractEvent::Claim {
-                    account: info.sender.to_string(),
-                    claim_amount: expected_claim_amount,
-                    ve_balance: expected_balance_on_claim.clone(),
-                },
-                ContractEvent::Lock {
-                    account: info.sender.to_string(),
-                    locked_balance: initial_user_state.locked_balance + amount.clone(),
-                    locked_until: new_locked_until,
-                    ve_balance: expected_balance_at_the_end.clone(),
-                }
-            ]
-        );
-
         let initial_balance = initial_locked.clone();
         let expected_burn_amount = initial_balance.clone() - expected_balance_on_claim.clone();
         let expected_mint_amount = expected_balance_at_the_end - expected_balance_on_claim;
 
-        // TODO: deal with attributes
-        let expected_attributes = vec![
-            attr("action", String::from("burn")),
-            attr("from", info.sender.to_string()),
-            attr("amount", expected_burn_amount.to_string()),
-            attr("action", String::from("mint")),
-            attr("to", info.sender.to_string()),
-            attr("amount", expected_mint_amount.to_string())
-        ];
+        let expected_response: Response<Empty> = Response::new()
+            .add_messages(vec![expected_transfer_message, expected_transfer_from_message])
+            .add_events(
+                vec![
+                    ContractEvent::make_claim(
+                        info.sender.to_string(),
+                        expected_claim_amount.clone(),
+                        expected_balance_on_claim.clone()
+                    ).to_cosmos_event(),
+                    ContractEvent::make_lock(
+                        info.sender.to_string(),
+                        amount.clone() + initial_user_state.locked_balance,
+                        expected_balance_at_the_end.clone(),
+                        new_locked_until.clone()
+                    ).to_cosmos_event()
+                ]
+            )
+            .add_attributes(
+                vec![
+                    attr("action", String::from("burn")),
+                    attr("from", info.sender.to_string()),
+                    attr("amount", expected_burn_amount.to_string()),
+                    attr("action", String::from("mint")),
+                    attr("to", info.sender.to_string()),
+                    attr("amount", expected_mint_amount.to_string())
+                ]
+            );
 
-        assert_eq!(resp.attributes.len(), expected_attributes.len());
-        assert_eq!(resp.attributes, expected_attributes);
+        assert_eq!(resp, expected_response);
     }
 
     #[test]
@@ -647,24 +660,27 @@ mod contract_tests {
             funds: vec![],
         });
 
-        assert_eq!(resp.messages[0].msg, expected_message);
+        let expected_response: Response<Empty> = Response::new()
+            .add_messages(vec![expected_message])
+            .add_events(
+                vec![
+                    ContractEvent::make_lock(
+                        info.sender.to_string(),
+                        amount.clone(),
+                        expected_balance.clone(),
+                        new_locked_until.clone()
+                    ).to_cosmos_event()
+                ]
+            )
+            .add_attributes(
+                vec![
+                    attr("action", String::from("mint")),
+                    attr("to", info.sender.to_string()),
+                    attr("amount", expected_balance.to_string())
+                ]
+            );
 
-        assert_has_events(
-            &resp,
-            vec![ContractEvent::Lock {
-                account: info.sender.to_string(),
-                locked_balance: amount.clone(),
-                locked_until: new_locked_until,
-                ve_balance: expected_balance.clone(),
-            }]
-        );
-
-        let mut expected_attributes: HashMap<&str, String> = HashMap::new();
-        expected_attributes.insert("action", String::from("mint"));
-        expected_attributes.insert("to", info.sender.to_string());
-        expected_attributes.insert("amount", expected_balance.to_string());
-
-        assert_has_attributes(&resp, expected_attributes);
+        assert_eq!(resp, expected_response);
     }
 
     #[test]
@@ -755,43 +771,45 @@ mod contract_tests {
 
         let expected_claim_amount =
             (initial_user_state.balance * reward_per_token) / apply_decimals(Uint128::from(1u8));
-        assert_has_events(
-            &resp,
-            vec![
-                ContractEvent::WithdrawRequest {
-                    account: info.sender.to_string(),
-                    withdraw_at: expected_user_state.withdraw_at,
-                    amount: expected_user_state.locked_balance,
-                },
-                ContractEvent::Claim {
-                    account: info.sender.to_string(),
-                    claim_amount: expected_claim_amount,
-                    ve_balance: Uint128::zero(), // because locked_until == block.ts
-                }
-            ]
-        );
 
-        assert_eq!(resp.messages.len(), 1);
+        let expected_response: Response<Empty> = Response::new()
+            .add_events(
+                vec![
+                    (ContractEvent::Claim {
+                        account: info.sender.to_string(),
+                        claim_amount: expected_claim_amount,
+                        ve_balance: Uint128::zero(), //Because user locked_balance == 0
+                    }).to_cosmos_event(),
+                    (ContractEvent::WithdrawRequest {
+                        account: info.sender.to_string(),
+                        withdraw_at: expected_user_state.withdraw_at,
+                        amount: expected_user_state.locked_balance,
+                    }).to_cosmos_event()
+                ]
+            )
+            .add_messages(
+                vec![
+                    CosmosMsg::Wasm(WasmMsg::Execute {
+                        contract_addr: "cw20".to_string(),
+                        msg: to_binary(
+                            &(Cw20ExecuteMsg::Transfer {
+                                recipient: info.sender.to_string(),
+                                amount: expected_claim_amount,
+                            })
+                        ).unwrap(),
+                        funds: vec![],
+                    })
+                ]
+            )
+            .add_attributes(
+                vec![
+                    attr("action", "burn".to_string()),
+                    attr("from", user_addr.to_string()),
+                    attr("amount", user_ve_balance.to_string())
+                ]
+            );
 
-        let expected_message = CosmosMsg::Wasm(cosmwasm_std::WasmMsg::Execute {
-            contract_addr: "cw20".to_string(),
-            msg: to_binary(
-                &(Cw20ExecuteMsg::Transfer {
-                    recipient: info.sender.to_string(),
-                    amount: expected_claim_amount,
-                })
-            ).unwrap(),
-            funds: vec![],
-        });
-
-        assert_eq!(resp.messages[0].msg, expected_message);
-
-        let mut expected_attributes: HashMap<&str, String> = HashMap::new();
-        expected_attributes.insert("action", "burn".to_string());
-        expected_attributes.insert("from", user_addr.to_string());
-        expected_attributes.insert("amount", user_ve_balance.to_string());
-
-        assert_has_attributes(&resp, expected_attributes)
+        assert_eq!(expected_response, resp);
     }
 
     #[test]
@@ -819,14 +837,15 @@ mod contract_tests {
             USER_STATE.load(deps.as_mut().storage, &info.sender).unwrap()
         );
 
-        assert_has_events(
-            &resp,
-            vec![ContractEvent::WithdrawRequest {
-                account: info.sender.to_string(),
-                withdraw_at: expected_user_state.withdraw_at,
-                amount: expected_user_state.locked_balance,
-            }]
+        let expected_response: Response<Empty> = Response::new().add_event(
+            ContractEvent::make_withdraw_request(
+                info.sender.to_string(),
+                expected_user_state.locked_balance,
+                expected_user_state.withdraw_at
+            ).to_cosmos_event()
         );
+
+        assert_eq!(expected_response, resp);
     }
 
     #[test]
@@ -994,7 +1013,7 @@ mod contract_tests {
         USER_STATE.update(
             deps.as_mut().storage,
             &user_addr,
-            |mut state| -> StdResult<_> {
+            |state| -> StdResult<_> {
                 let mut user = state.unwrap_or_default();
                 user.locked_balance = user_locked_balance.clone();
                 user.locked_until = Uint64::from(
@@ -1261,11 +1280,12 @@ mod contract_tests {
         let resp = execute(deps.branch(), env.clone(), info, msg).unwrap();
 
         assert_eq!(expected_state, TOKEN_STATE.load(deps.storage).unwrap());
-        assert_has_events(
-            &resp,
-            vec![ContractEvent::NewDistributionPeriod {
-                value: new_distribution_period,
-            }]
+
+        let expected_response: Response<Empty> = Response::new().add_event(
+            ContractEvent::make_new_distribution_period(
+                new_distribution_period.clone()
+            ).to_cosmos_event()
         );
+        assert_eq!(expected_response, resp);
     }
 }

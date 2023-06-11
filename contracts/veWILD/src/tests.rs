@@ -687,11 +687,6 @@ mod contract_tests {
                     locked_balance: amount.clone(),
                     locked_until: new_locked_until,
                     ve_balance: expected_balance.clone(),
-                },
-                ContractEvent::Claim {
-                    account: info.sender.to_string(),
-                    claim_amount: Uint128::zero(),
-                    ve_balance: Uint128::zero(),
                 }
             ]
         );

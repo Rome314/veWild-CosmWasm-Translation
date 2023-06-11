@@ -3,6 +3,9 @@ name = "veWILD"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 cw2 = "1.0.1"
 cw20 = "1.0.1"
@@ -12,7 +15,7 @@ serde = { version = "1.0.103", default-features = false, features = ["derive"] }
 thiserror = "1"
 schemars = "0.8.1"
 cw-utils = "1.0.1"
-cosmwasm-schema = "1.1.4"
+cosmwasm-schema = "1.1.5"
 cw-storage-plus = "1.0.1"
 
 [dev-dependencies]

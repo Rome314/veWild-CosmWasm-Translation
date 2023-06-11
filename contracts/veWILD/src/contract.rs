@@ -3,6 +3,7 @@ use crate::error::*;
 use crate::events::*;
 use crate::msg::*;
 use crate::state::*;
+use cosmwasm_std::to_binary;
 use cosmwasm_std::{
     Addr,
     CosmosMsg,
@@ -68,11 +69,6 @@ pub fn instantiate(
     //TODO: emit ownership transfer event (?)
 
     Ok(response)
-}
-
-mod query {
-    use crate::msg::*;
-    use super::*;
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -386,10 +382,64 @@ mod exec {
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
+pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     use QueryMsg::*;
+    use query::*;
 
     match msg {
-        // TODO: query pending reward: pending_reward + token_state.peding_reward()
+        Balance { address } => to_binary(&query_balance(deps, address)?),
+        TokenInfo {} => to_binary(&query_token_info(deps)?),
+        RewardRate {} => to_binary(&query_reward_rate(deps, env)?),
+        PendingAccountReward { address } =>
+            to_binary(&query_pending_account_reward(deps, env, address)?),
+        UserInfo { address } => to_binary(&query_user_info(deps, address)?),
+        VeTokenInfo {} => to_binary(&query_ve_token_info(deps)?),
+    }
+}
+
+mod query {
+    use super::*;
+
+    pub fn query_reward_rate(deps: Deps, env: Env) -> StdResult<RewardRateResponse> {
+        let token_state = TOKEN_STATE.load(deps.storage)?;
+        let resp = RewardRateResponse {
+            reward_rate: token_state.reward_rate(Uint64::from(env.block.height)),
+        };
+
+        Ok(resp)
+    }
+
+    pub fn query_pending_account_reward(
+        deps: Deps,
+        env: Env,
+        account: Addr
+    ) -> StdResult<PendingAccountRewardResponse> {
+        let token_state = TOKEN_STATE.load(deps.storage)?;
+
+        let pending_reward_per_token =
+            token_state.reward_per_token +
+            token_state.pending_reward_per_token(Uint64::from(env.block.height));
+
+        let user_state = USER_STATE.load(deps.storage, &account).unwrap_or_default();
+
+        let pending_account_reward = user_state.pending_reward(pending_reward_per_token);
+
+        let resp = PendingAccountRewardResponse {
+            pending_account_reward,
+        };
+
+        Ok(resp)
+    }
+
+    pub fn query_user_info(deps: Deps, account: Addr) -> StdResult<UserInfoResponse> {
+        let user_state = USER_STATE.load(deps.storage, &account).unwrap_or_default();
+
+        Ok(UserInfoResponse::from_user_state(user_state))
+    }
+
+    pub fn query_ve_token_info(deps: Deps) -> StdResult<VeTokenInfoResponse> {
+        let token_state = TOKEN_STATE.load(deps.storage)?;
+
+        Ok(VeTokenInfoResponse::from_token_state(token_state))
     }
 }
